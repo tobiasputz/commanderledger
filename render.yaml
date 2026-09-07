@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: commander-ledger
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /healthz
+    disk:
+      name: commander-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: COMMANDER_MODE
+        value: hosted
+      - key: COMMANDER_DB
+        value: /data/commander.db
+      - key: COMMANDER_BACKUPS
+        value: /data/backups
+      - key: COMMANDER_PASSWORD_HASH
+        sync: false
+      - key: COMMANDER_PUBLIC_URL
+        sync: false
