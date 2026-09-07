@@ -6,3 +6,11 @@
 .table-controls{display:flex;gap:14px;align-items:center;margin:12px 0;flex-wrap:wrap}.table-controls input{max-width:220px;font-size:11px;min-height:36px}.table-controls small{margin-left:auto}.sort-heading{font-size:10px;white-space:nowrap;padding:3px 0}
 @media(max-width:760px){.sidebar{position:relative}.sidebar-bottom{display:block;position:absolute;top:13px;right:17px;padding:0;font-size:0}.sidebar-bottom>a,.sidebar-bottom>.online-dot{display:none}.sidebar-bottom .quiet{font-size:11px;min-height:35px}.brand{padding-right:105px}}
 .scryfall-tools{margin:-8px 0 18px}.scryfall-tools>small{display:block;font-size:10px}.scryfall-results:empty{display:none}.scryfall-results{font-size:12px;margin-top:12px}.scryfall-card{display:flex;align-items:flex-start;gap:15px;background:var(--bg);padding:15px;border-radius:8px;margin-bottom:12px}.scryfall-card img{width:115px;height:auto;object-fit:contain;border-radius:5px}.scryfall-card p{white-space:pre-wrap;margin:8px 0;color:var(--muted);font-size:11px}.scryfall-card strong{font-size:14px}.scryfall-results>.muted{font-size:11px}@media(max-width:480px){.scryfall-card{display:block}.scryfall-card img{width:150px;margin-bottom:12px}}
+/* v3 table workflows */
+.import-dialog{width:min(760px,94vw);max-height:90dvh;overflow:auto}
+.import-dialog pre,.version-list pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
+#pod-list article,#suggestions article{padding:1rem;border:1px solid var(--border,#34404b);border-radius:12px}
+#pod-seats li{padding:.4rem}
+.recap-numbers{display:flex;gap:1.5rem;flex-wrap:wrap}.recap-numbers strong{font-size:1.8rem;display:block}
+#draft-status,#import-message{overflow-wrap:anywhere}
+@media(max-width:600px){.import-dialog input,.import-dialog select,.import-dialog textarea{font-size:16px}.actions{flex-wrap:wrap}.version-field select{max-width:100%}.sticky-save{flex-wrap:wrap}button{min-height:40px}}

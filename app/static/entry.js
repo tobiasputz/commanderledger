@@ -1,7 +1,13 @@
 'use strict';
 const state=JSON.parse(document.querySelector('#entry-data').textContent),form=document.querySelector('#game-form'),container=document.querySelector('#participants');
 const uid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+let savingGame=false;
 let submissionKey=state.editing?state.game.submission_key:uid(),quickTarget=null,dirty=false;
+async function loadSeatVersions(card,selected='',historical=false){
+ const deckId=card.querySelector('[name=deck_id]').value,select=card.querySelector('[name=deck_version_id]');
+ card.querySelector('.version-field').hidden=!deckId;select.innerHTML='<option value="">'+(historical?'Keep recorded version':'Current deck at save time')+'</option>';
+ if(!deckId)return;try{const data=await api('/api/decks/'+deckId+'/versions',undefined,'GET');if(card.querySelector('[name=deck_id]').value!==deckId)return;data.versions.forEach(v=>select.add(new Option(v.name+' · '+v.created_at.slice(0,10),v.id)));select.value=selected}catch(err){toast('Version list unavailable; current/recorded version will be used.',true)}
+}
 const initial=state.game;
 const localDate=new Date();localDate.setMinutes(localDate.getMinutes()-localDate.getTimezoneOffset());
 form.elements.played_at.value=initial?initial.played_at.slice(0,16):localDate.toISOString().slice(0,16);
@@ -11,7 +17,7 @@ function updateSeats(){[...container.children].forEach((card,index)=>{card.query
 function deckOptions(card,selected=''){
  const player=card.querySelector('[name=player_id]').value;
  const select=card.querySelector('[name=deck_id]');select.innerHTML='<option value="">Commander / deck description</option>';
- catalog.decks.filter(d=>(d.owner_id===player&&d.status==='active')||d.id===selected).forEach(d=>select.add(new Option(`${d.name} · ${d.commanders}`,d.id)));
+ catalog.decks.filter(d=>(d.owner_id===player&&d.status==='active'&&!d.deleted_at)||(state.editing&&d.id===selected)).forEach(d=>select.add(new Option(`${d.name} · ${d.commanders}`,d.id)));
  select.value=selected;card.querySelector('.quick-deck').disabled=!player;
  card.querySelector('.description-fields').hidden=!!selected;
 }
@@ -22,10 +28,10 @@ function addSeat(random=false,data={}){
  const playerOptions=catalog.players.filter(p=>!p.archived||p.id===data.player_id).map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
  const key=uid();
  card.innerHTML=`<div class="section-heading"><span class="eyebrow seat-title"></span><div class="actions"><button type="button" class="quiet move-up" aria-label="Move seat earlier">↑</button><button type="button" class="quiet move-down" aria-label="Move seat later">↓</button><button type="button" class="quiet remove-seat" aria-label="Remove participant">Remove ×</button></div></div>
- <label>Player<select name="player_id" id="player-${key}" hx-get="/fragments/decks" hx-trigger="change" hx-include="this" hx-target="#deck-${key}" hx-swap="innerHTML"><option value="">LGS random / temporary</option>${playerOptions}</select></label>
+ <label>Player<select name="player_id" id="player-${key}"><option value="">LGS random / temporary</option>${playerOptions}</select></label>
  <label class="temporary-name">Temporary nickname<input name="player_name" placeholder="LGS random ${index}" value="${escapeHtml(data.player_name||'')}"></label>
  <label class="named-decks">Deck<select name="deck_id" id="deck-${key}"><option value="">Commander / deck description</option></select></label>
- <button type="button" class="quiet quick-deck">+ Create a deck for this player</button>
+ <label class="version-field" hidden>Deck version<select name="deck_version_id"><option value="">Current deck at save time</option></select></label><button type="button" class="quiet quick-deck">+ Create a deck for this player</button>
  <div class="description-fields"><label>Commander(s)<input name="commanders" value="${escapeHtml(data.commanders||'')}" placeholder="Commander, partner, background…"></label><label>Deck description<input name="deck_name" value="${escapeHtml(data.deck_name||'')}" placeholder="A name or quick description"></label></div>
  <div class="seat-flags"><label class="inline"><input type="checkbox" name="winner"> Winner</label><label class="inline"><input type="radio" name="starting-seat" value="${key}"> Started</label></div>
  <label>Enjoyment playing against this deck<select name="deck_rating" class="rating-select"><option value="">Not rated</option></select></label>
@@ -34,7 +40,9 @@ function addSeat(random=false,data={}){
  const playerSelect=card.querySelector('[name=player_id]');playerSelect.value=data.player_id||(!random?catalog.players.find(p=>!p.archived&&!Array.from(container.querySelectorAll('[name=player_id]')).some(el=>el!==playerSelect&&el.value===p.id))?.id||'':'');
  function playerChanged(){const named=!!playerSelect.value;card.querySelector('.temporary-name').hidden=named;card.querySelector('.named-decks').hidden=!named;card.querySelector('.quick-deck').hidden=!named;deckOptions(card);dirty=true}
  playerSelect.addEventListener('change',playerChanged);playerChanged();deckOptions(card,data.deck_id||'');
- card.querySelector('[name=deck_id]').onchange=e=>{card.querySelector('.description-fields').hidden=!!e.target.value;dirty=true};
+ card.querySelector('[name=deck_id]').onchange=e=>{card.querySelector('.description-fields').hidden=!!e.target.value;loadSeatVersions(card);dirty=true};
+ playerSelect.addEventListener('change',()=>loadSeatVersions(card));
+ loadSeatVersions(card,data.deck_version_id||'',!!state.editing);
  card.querySelector('.move-up').onclick=()=>{if(card.previousElementSibling)container.insertBefore(card,card.previousElementSibling);updateSeats();dirty=true};
  card.querySelector('.move-down').onclick=()=>{if(card.nextElementSibling)container.insertBefore(card.nextElementSibling,card);updateSeats();dirty=true};
  card.querySelector('.remove-seat').onclick=()=>{card.remove();updateSeats();dirty=true};
@@ -48,15 +56,15 @@ document.querySelector('#add-named').onclick=()=>addSeat(false);
 document.querySelector('#add-random').onclick=()=>addSeat(true);
 document.querySelector('#detailed').onchange=e=>form.classList.toggle('detailed',e.target.checked);
 form.elements.result.onchange=syncResult;
-if(initial)initial.participants.forEach(p=>addSeat(!p.player_id,p));else{addSeat(false);addSeat(catalog.players.filter(p=>!p.archived).length<2)}
+if(initial)initial.participants.forEach(p=>addSeat(!p.player_id,state.duplicate?{...p,deck_version_id:null}:p));else{addSeat(false);addSeat(catalog.players.filter(p=>!p.archived).length<2)}
 if(state.editing){document.querySelector('#detailed').checked=true;form.classList.add('detailed')}
-document.querySelector('#quick-deck-form').onsubmit=async e=>{e.preventDefault();const f=e.target;const data={name:f.elements.name.value,commanders:f.elements.commanders.value,color_identity:f.elements.color_identity.value,owner_id:quickTarget.querySelector('[name=player_id]').value,links:f.elements.link.value?[f.elements.link.value]:[]};try{const deck=await api('/api/decks',data);catalog.decks.push(deck);deckOptions(quickTarget,deck.id);document.querySelector('#quick-dialog').close();toast('Deck created')}catch(err){toast(err.message,true)}};
+document.querySelector('#quick-deck-form').onsubmit=async e=>{e.preventDefault();const f=e.target;const data={name:f.elements.name.value,commanders:f.elements.commanders.value,color_identity:f.elements.color_identity.value,owner_id:quickTarget.querySelector('[name=player_id]').value,links:f.elements.link.value?[f.elements.link.value]:[]};try{const deck=await api('/api/decks',data);catalog.decks.push(deck);deckOptions(quickTarget,deck.id);loadSeatVersions(quickTarget);dirty=true;document.querySelector('#quick-dialog').close();toast('Deck created')}catch(err){toast(err.message,true)}};
 form.addEventListener('input',()=>dirty=true);
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});dirty=false;
-form.onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#save-game');button.disabled=true;const error=document.querySelector('#form-error');error.textContent='';try{
+form.onsubmit=async e=>{e.preventDefault();if(savingGame)return;savingGame=true;const nextGame=e.submitter?.name==='next-game';const button=document.querySelector('#save-game');button.disabled=true;const error=document.querySelector('#form-error');error.textContent='';try{
  const get=name=>form.elements[name].value;
- const participants=[...container.children].map((card,i)=>{const v=name=>card.querySelector(`[name=${name}]`).value;return {id:card.dataset.id||null,player_id:v('player_id')||null,deck_id:v('player_id')?v('deck_id')||null:null,player_name:v('player_name'),deck_name:v('deck_name'),commanders:v('commanders'),seat:i+1,starting:card.querySelector('[name=starting-seat]').checked,winner:card.querySelector('[name=winner]').checked,elimination:Number(v('elimination'))||null,archetype:v('archetype'),deck_links:v('deck_links').split('\n').map(s=>s.trim()).filter(Boolean),notes:v('seat_notes')}});
+ const participants=[...container.children].map((card,i)=>{const v=name=>card.querySelector(`[name=${name}]`).value;return {id:card.dataset.id||null,player_id:v('player_id')||null,deck_id:v('player_id')?v('deck_id')||null:null,deck_version_id:v('player_id')&&v('deck_id')?v('deck_version_id')||null:null,player_name:v('player_name'),deck_name:v('deck_name'),commanders:v('commanders'),seat:i+1,starting:card.querySelector('[name=starting-seat]').checked,winner:card.querySelector('[name=winner]').checked,elimination:Number(v('elimination'))||null,archetype:v('archetype'),deck_links:v('deck_links').split('\n').map(s=>s.trim()).filter(Boolean),notes:v('seat_notes')}});
  const deck_ratings={};[...container.children].forEach((card,i)=>{const v=Number(card.querySelector('[name=deck_rating]').value);if(v)deck_ratings[i+1]=v});
  const data={played_at:get('played_at'),location_id:get('location_id')||null,event_id:get('event_id')||null,setting:get('setting'),result:get('result'),duration:Number(get('duration'))||null,turns:Number(get('turns'))||null,ending:get('ending'),notes:get('notes'),memorable:get('memorable'),tags:get('tags').split(',').map(x=>x.trim()).filter(Boolean),overall_rating:Number(get('overall_rating'))||null,sportsmanship:Number(get('sportsmanship'))||null,deck_ratings,participants,submission_key:submissionKey};
- const saved=await api('/api/games'+(state.editing?'/'+state.editing:''),data,state.editing?'PUT':'POST');dirty=false;location.href='/games/'+saved.id;
- }catch(err){error.textContent=err.message;error.scrollIntoView({behavior:'smooth'});button.disabled=false}};
+ const saved=await api('/api/games'+(state.editing?'/'+state.editing:''),data,state.editing?'PUT':'POST');dirty=false;window.clearEntryDraft?.();location.href=nextGame?'/games/new?duplicate='+saved.id:'/games/'+saved.id;
+ }catch(err){savingGame=false;error.textContent=err.message;error.scrollIntoView({behavior:'smooth'});button.disabled=false}};

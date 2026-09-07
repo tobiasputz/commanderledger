@@ -52,6 +52,10 @@ def merge_player(identity: str,data: MergeInput,db: Session=Depends(get_db)) -> 
     for deck in db.scalars(select(Deck).where(Deck.owner_id==identity)): deck.owner_id=target.id
     db.execute(update(Ownership).where(Ownership.owner_id==identity).values(owner_id=target.id))
     db.execute(update(Rating).where(Rating.rater_id==identity).values(rater_id=target.id))
+    from app.models import SavedPod
+    for pod in db.scalars(select(SavedPod)):
+        pod.player_ids=list(dict.fromkeys(target.id if pid==identity else pid for pid in pod.player_ids))
+        if len(pod.player_ids)<2: db.delete(pod)
     source.archived=True; source.notes+='\nMerged into '+target.name+' ('+target.id+')'
     db.commit(); return {'ok':True}
 
@@ -77,17 +81,23 @@ def convert(data: ConvertInput, db: Session=Depends(get_db)) -> dict:
 def create_deck(data: DeckInput,db: Session=Depends(get_db)) -> dict:
     require(db,Player,data.owner_id)
     obj=Deck(**data.model_dump(),retired_at=now() if data.status!='active' else None)
-    db.add(obj); db.flush(); db.add(Ownership(deck_id=obj.id,owner_id=obj.owner_id)); db.commit(); return dump_record(obj)
+    db.add(obj); db.flush(); db.add(Ownership(deck_id=obj.id,owner_id=obj.owner_id))
+    from app.services.versions import snapshot
+    snapshot(db,obj); db.commit(); return dump_record(obj)
 
 @router.put('/decks/{identity}')
 def edit_deck(identity: str,data: DeckInput,db: Session=Depends(get_db)) -> dict:
     obj=require(db,Deck,identity); require(db,Player,data.owner_id)
+    if obj.deleted_at: raise HTTPException(409,'Restore this deck before editing it.')
+    from app.services.versions import snapshot
+    snapshot(db,obj)
     if obj.owner_id!=data.owner_id:
         for history in db.scalars(select(Ownership).where(Ownership.deck_id==obj.id,Ownership.ended_at==None)): history.ended_at=now()
         db.add(Ownership(deck_id=obj.id,owner_id=data.owner_id))
     if obj.status=='active' and data.status!='active': obj.retired_at=now()
     if data.status=='active': obj.retired_at=None
     for k,v in data.model_dump().items(): setattr(obj,k,v)
+    snapshot(db,obj)
     db.commit(); return dump_record(obj)
 
 @router.post('/decks/{identity}/copy')

@@ -7,15 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
-from app.models import Base, Player, Deck, Ownership, Location, Event, Game, Participant, Rating, Setting
+from app.models import Base, Player, Deck, Ownership, Location, Event, Game, Participant, Rating, Setting, DeckVersion, SavedPod
 from app.db import DB_PATH, ROOT
-TABLES=[Player,Deck,Ownership,Location,Event,Game,Participant,Rating,Setting]
+TABLES=[Player,Deck,DeckVersion,Ownership,Location,Event,SavedPod,Game,Participant,Rating,Setting]
 
 def dump_record(obj: object, private: bool = True) -> dict:
     return {c.name:getattr(obj,c.name) for c in obj.__table__.columns if private or c.name!='private_note'}
 
 def export_json(db: Session) -> dict:
-    return {'format':'commander-ledger','version':1,'exported_at':datetime.now(timezone.utc).isoformat(),'tables':{m.__tablename__:[dump_record(x) for x in db.scalars(select(m))] for m in TABLES}}
+    return {'format':'commander-ledger','version':2,'exported_at':datetime.now(timezone.utc).isoformat(),'tables':{m.__tablename__:[dump_record(x) for x in db.scalars(select(m))] for m in TABLES}}
 
 def backup_database(db: Session | None = None, source: Path = DB_PATH) -> Path | None:
     if not source.exists(): return None
@@ -35,8 +35,16 @@ def backup_database(db: Session | None = None, source: Path = DB_PATH) -> Path |
     return path
 
 def restore_json(db: Session, data: dict) -> None:
-    if data.get('format')!='commander-ledger' or data.get('version')!=1: raise ValueError('Unsupported backup format')
-    tables=data.get('tables',{})
+    if data.get('format')!='commander-ledger' or data.get('version') not in (1,2): raise ValueError('Unsupported backup format')
+    import copy
+    tables=copy.deepcopy(data.get('tables',{}))
+    if data['version']==1:
+        expected={m.__tablename__ for m in TABLES}-{'deck_versions','saved_pods'}
+        if set(tables)!=expected: raise ValueError('Backup is missing required tables')
+        tables['deck_versions']=[];tables['saved_pods']=[]
+        for row in tables['decks']:
+            for key,value in {'deleted_at':None,'source_url':'','sideboard':'','maybeboard':''}.items(): row.setdefault(key,value)
+        for row in tables['participants']: row.setdefault('deck_version_id',None)
     if set(tables)!={m.__tablename__ for m in TABLES}: raise ValueError('Backup is missing required tables')
     # Validate in isolated database first, including constraints and every foreign key.
     from sqlalchemy import create_engine, event
@@ -63,6 +71,14 @@ def restore_json(db: Session, data: dict) -> None:
                     schema(**{key:getattr(obj,key) for key in schema.model_fields})
             for obj in check.scalars(select(Participant)):
                 ParticipantInput(**{key:getattr(obj,key) for key in ParticipantInput.model_fields})
+            for pod in check.scalars(select(SavedPod)):
+                from app.routes.features import PodInput
+                PodInput(name=pod.name,player_ids=pod.player_ids)
+                if any(not check.get(Player,pid) for pid in pod.player_ids): raise ValueError('Saved pod references a missing player')
+            for version in check.scalars(select(DeckVersion)):
+                if not version.name.strip() or len(version.name)>180: raise ValueError('Invalid version name')
+            for participant in check.scalars(select(Participant)):
+                if participant.deck_version_id and check.get(DeckVersion,participant.deck_version_id).deck_id!=participant.deck_id: raise ValueError('Version belongs to another deck')
             # Validate cross-row game result invariants.
             for game in check.scalars(select(Game)):
                 participants=[{k:getattr(p,k) for k in ('id','player_id','deck_id','player_name','deck_name','commanders','archetype','deck_links','notes','seat','starting','winner','elimination')} for p in game.participants]

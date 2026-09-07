@@ -156,3 +156,18 @@ def test_missing_volume_rejected(tmp_path,monkeypatch):
     monkeypatch.setenv('COMMANDER_DB',str(tmp_path/'game.db'))
     monkeypatch.setenv('COMMANDER_BACKUPS',str(tmp_path/'backups'))
     with pytest.raises(RuntimeError,match='Persistent volume'): security.validate_configuration(cfg)
+
+def test_login_second_tab_and_missing_cookie_recovery(secured):
+    client,_=secured
+    first=client.get('/login')
+    token1=re.search('name="csrf" value="([^"]+)"',first.text).group(1)
+    second=client.get('/login')
+    token2=re.search('name="csrf" value="([^"]+)"',second.text).group(1)
+    assert token1==token2
+    assert client.post('/login',data={'password':'test-only-long-password','csrf':token1},follow_redirects=False).status_code==303
+    client.cookies.clear()
+    stale=client.post('/login',data={'password':'test-only-long-password','csrf':token1},follow_redirects=False)
+    assert stale.status_code==403
+    fresh=re.search('name="csrf" value="([^"]+)"',stale.text).group(1)
+    assert fresh!=token1
+    assert client.post('/login',data={'password':'test-only-long-password','csrf':fresh},follow_redirects=False).status_code==303

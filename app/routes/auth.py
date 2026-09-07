@@ -1,4 +1,5 @@
 import hmac
+import re
 import secrets
 from fastapi import APIRouter,Request,Form
 from fastapi.responses import RedirectResponse,HTMLResponse
@@ -10,9 +11,10 @@ router=APIRouter()
 templates=Jinja2Templates(directory=ROOT/'app/templates')
 
 def login_page(request: Request,message: str='',status: int=200) -> HTMLResponse:
-    token=secrets.token_urlsafe(32)
+    existing=request.cookies.get(LOGIN_COOKIE,'')
+    token=existing if re.fullmatch(r'[A-Za-z0-9_-]{43}',existing) else secrets.token_urlsafe(32)
     response=templates.TemplateResponse(request=request,name='login.html',context={'csrf':token,'message':message},status_code=status)
-    response.set_cookie(LOGIN_COOKIE,token,secure=config().hosted,httponly=True,samesite='strict',max_age=600)
+    response.set_cookie(LOGIN_COOKIE,token,secure=config().hosted,httponly=True,samesite='strict',max_age=1800)
     return response
 
 @router.get('/login')
@@ -23,7 +25,7 @@ def login_get(request: Request) -> HTMLResponse:
 async def login_post(request: Request,password: str=Form(...,max_length=1024),csrf: str=Form(...,max_length=200)) -> HTMLResponse:
     cfg=config()
     if not hmac.compare_digest(csrf,request.cookies.get(LOGIN_COOKIE,'')) or not csrf:
-        return login_page(request,'Your sign-in form expired. Please try again.',403)
+        return login_page(request,'This sign-in page no longer matches your browser session. Enter your password again. If this repeats, open the HTTPS site directly in Safari or your browser and allow cookies.',403)
     ip=request.client.host if request.client else 'unknown'
     if not await run_in_threadpool(login_attempt,cfg,ip):
         response=login_page(request,'Too many sign-in attempts. Try again in ten minutes.',429)

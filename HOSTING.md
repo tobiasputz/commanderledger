@@ -21,7 +21,7 @@ Unverified Railway trials restrict outbound networking. Connect your GitHub acco
 
 ## 1. Prepare the project and your password
 
-Extract the whole ZIP. Open PowerShell in the `commander-ledger` folder. If you already ran the previous version, keep its `data` and `backups` directories; do not overwrite or remove them. The main game database schema and version-1 JSON backups remain compatible.
+Extract the whole ZIP. Open PowerShell in the `commander-ledger` folder. If you already ran the previous version, keep its `data` and `backups` directories; do not overwrite or remove them. Version 3 automatically upgrades the database to schema 0002 on startup and accepts both old version-1 and new version-2 JSON backups. Download a JSON backup before upgrading. See UPDATE_V3.md for the existing-deployment walkthrough.
 
 If needed, install/update dependencies:
 

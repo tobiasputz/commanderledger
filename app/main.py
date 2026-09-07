@@ -89,3 +89,6 @@ app.include_router(auth_router)
 
 from app.routes.scryfall import router as scryfall_router
 app.include_router(scryfall_router)
+
+from app.routes.features import router as features_router
+app.include_router(features_router)

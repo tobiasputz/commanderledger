@@ -38,7 +38,17 @@ class DeckInput(Input):
     notes: str = ''
     status: Literal['active','retired','dismantled'] = 'active'
     links: list[str] = Field(default_factory=list)
-    decklist: str = ''
+    decklist: str = Field(default='', max_length=200000)
+    sideboard: str = Field(default='', max_length=200000)
+    maybeboard: str = Field(default='', max_length=200000)
+    source_url: str = ''
+    @field_validator('source_url')
+    @classmethod
+    def source(cls, value: str) -> str:
+        if value:
+            from app.services.deck_import import identify
+            return identify(value)[2]
+        return value
     color: str = '#89cbb1'
     _links = field_validator('links')(valid_links)
     _color = field_validator('color')(PlayerInput.color_hex.__func__)
@@ -58,6 +68,7 @@ class ParticipantInput(Input):
     id: str | None = None
     player_id: str | None = None
     deck_id: str | None = None
+    deck_version_id: str | None = None
     player_name: str = ''
     deck_name: str = ''
     commanders: str = ''

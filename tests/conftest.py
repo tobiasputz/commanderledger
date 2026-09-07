@@ -18,7 +18,12 @@ def db():
 
 @pytest.fixture
 def client(db):
-    app.dependency_overrides[get_db]=lambda:db
+    def request_db():
+        try: yield db
+        except Exception:
+            db.rollback()
+            raise
+    app.dependency_overrides[get_db]=request_db
     # Do not run lifespan against the user's real database.
     client=TestClient(app)
     yield client

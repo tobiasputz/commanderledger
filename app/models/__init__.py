@@ -38,11 +38,30 @@ class Deck(Record, Base):
     budget: Mapped[float | None]
     notes: Mapped[str] = mapped_column(default='')
     status: Mapped[str] = mapped_column(default='active')
+    deleted_at: Mapped[str | None]
+    source_url: Mapped[str] = mapped_column(default='')
+    sideboard: Mapped[str] = mapped_column(default='')
+    maybeboard: Mapped[str] = mapped_column(default='')
     retired_at: Mapped[str | None]
     links: Mapped[list] = mapped_column(JSON, default=list)
     decklist: Mapped[str] = mapped_column(default='')
     color: Mapped[str] = mapped_column(default='#89cbb1')
     __table_args__ = (CheckConstraint("status IN ('active','retired','dismantled')"),)
+
+class DeckVersion(Record, Base):
+    __tablename__ = 'deck_versions'
+    deck_id: Mapped[str] = mapped_column(ForeignKey('decks.id'))
+    name: Mapped[str]
+    commanders: Mapped[str]
+    color_identity: Mapped[str] = mapped_column(default='')
+    decklist: Mapped[str] = mapped_column(default='')
+    sideboard: Mapped[str] = mapped_column(default='')
+    maybeboard: Mapped[str] = mapped_column(default='')
+
+class SavedPod(Record, Base):
+    __tablename__ = 'saved_pods'
+    name: Mapped[str]
+    player_ids: Mapped[list] = mapped_column(JSON, default=list)
 
 class Ownership(Record, Base):
     __tablename__ = 'ownerships'
@@ -87,6 +106,7 @@ class Participant(Record, Base):
     game_id: Mapped[str] = mapped_column(ForeignKey('games.id', ondelete='CASCADE'))
     player_id: Mapped[str | None] = mapped_column(ForeignKey('players.id'))
     deck_id: Mapped[str | None] = mapped_column(ForeignKey('decks.id'))
+    deck_version_id: Mapped[str | None] = mapped_column(ForeignKey('deck_versions.id'))
     owner_id_snapshot: Mapped[str | None] = mapped_column(ForeignKey('players.id'))
     player_name: Mapped[str]
     deck_name: Mapped[str]

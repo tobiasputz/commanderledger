@@ -38,6 +38,17 @@ def save_game(db: Session, data: GameInput, identity: str | None = None) -> Game
         else: values['player_name']=raw.player_name or f'LGS random {raw.seat}'
         if raw.deck_id:
             deck=require(db,Deck,raw.deck_id)
+            if deck.deleted_at and not unchanged: raise HTTPException(409,'This deck is in Trash. Restore it or choose another deck.')
+            from app.models import DeckVersion
+            if raw.deck_version_id:
+                version=require(db,DeckVersion,raw.deck_version_id)
+                if version.deck_id!=deck.id: raise HTTPException(400,'Version belongs to another deck.')
+                values['deck_version_id']=version.id
+            elif unchanged:
+                values['deck_version_id']=p.deck_version_id
+            else:
+                from app.services.versions import snapshot
+                values['deck_version_id']=snapshot(db,deck).id
             if unchanged:
                 for k in ('deck_name','commanders','archetype','deck_links'): values[k]=getattr(p,k)
             else:
@@ -52,8 +63,12 @@ def save_game(db: Session, data: GameInput, identity: str | None = None) -> Game
                 p.owner_id_snapshot=historical.owner_id if historical else deck.owner_id
                 p.owner_name=require(db,Player,p.owner_id_snapshot).name
         elif not unchanged:
+            if raw.deck_version_id: raise HTTPException(400,'A version requires a permanent deck.')
             p.owner_id_snapshot=None
             p.owner_name=''
+        if raw.deck_id and values.get('deck_version_id') and (not unchanged or raw.deck_version_id and raw.deck_version_id!=p.deck_version_id):
+            version=require(db,DeckVersion,values['deck_version_id'])
+            values['commanders']=version.commanders
         for k,v in values.items(): setattr(p,k,v)
         kept.append(p)
     removed=set(old)-{p.id for p in kept}

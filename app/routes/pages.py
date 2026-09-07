@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 import plotly.graph_objects as go
 from app.db import ROOT,get_db
-from app.models import Player,Deck,Game,Participant,Rating,Location,Event,Setting,Ownership
+from app.models import Player,Deck,Game,Participant,Rating,Location,Event,Setting,Ownership,DeckVersion
 from app.routes.api import catalog,game_dict
 from app.services.games import require
 from app.services.stats import select_games,group_records,record,ratings_summary,breakdown,matchups
@@ -59,7 +59,7 @@ def games_page(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
 
 @router.get('/games/{identity}')
 def game_page(identity: str,request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
-    return templates.TemplateResponse(request=request,name='game.html',context=context(db,game=require(db,Game,identity)))
+    return templates.TemplateResponse(request=request,name='game.html',context=context(db,game=require(db,Game,identity),version_names={v.id:v.name for v in db.scalars(select(DeckVersion))}))
 
 @router.get('/manage/{kind}')
 def manage(kind: str,request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
@@ -141,5 +141,5 @@ def search(request: Request,q: str='',db: Session=Depends(get_db)) -> HTMLRespon
 
 @router.get('/fragments/decks')
 def deck_options(request: Request,player_id: str='',db: Session=Depends(get_db)) -> HTMLResponse:
-    decks=list(db.scalars(select(Deck).where(Deck.owner_id==player_id,Deck.status=='active').order_by(Deck.name)))
+    decks=list(db.scalars(select(Deck).where(Deck.owner_id==player_id,Deck.status=='active',Deck.deleted_at.is_(None)).order_by(Deck.name)))
     return templates.TemplateResponse(request=request,name='deck_options.html',context={'decks':decks})

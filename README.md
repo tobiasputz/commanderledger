@@ -1,3 +1,16 @@
+# Commander Ledger v3 — collection and table update
+
+Already running on Railway? Start with **UPDATE_V3.md**. Keep your existing service, variables, domain, and `/data` volume.
+
+New in v3:
+- Public Archidekt/Moxfield link import with editable preview, duplicate detection, source refresh and text-export fallback. Moxfield may require approved API access; a live request was denied during verification.
+- Deck Trash and Restore without deleting historical games or statistics.
+- Immutable decklist versions with per-version results and optional version selection at game entry.
+- Saved named-player pods, game-night continuation, and Save & next game.
+- Device-local unfinished-entry recovery, retaining the same submission key for safe retries.
+- Deck rotation suggestions and monthly recaps on **At the table & recaps**.
+- Automatic schema migration and backward-compatible JSON restore.
+
 # Commander Ledger · v2
 
 A local-first Commander game tracker built with Python 3.12, FastAPI, SQLite, SQLAlchemy, Alembic, Jinja2, HTMX and Plotly. Local use requires no account, cloud service, Node.js installation or frontend build. After the initial Python dependency installation, local game tracking works offline; optional Scryfall suggestions and images use the internet. HTMX and Plotly JavaScript are bundled locally; there are no CDN requests, analytics or external fonts.
