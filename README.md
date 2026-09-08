@@ -1,6 +1,14 @@
-# Commander Ledger v4 — artwork and usability
+# Commander Ledger v6 — phone-first life table
 
-Start with **UPDATE_V4.md** to update your existing Railway service.
+Start with **UPDATE_V6.md**. The live table now uses a fixed, partitioned phone screen, commander-art backgrounds, tap/hold life zones, and button-operated counter overlays. It retains the v5 saving and recovery system and your existing iPhone Home Screen shortcut.
+
+## Previous release: v5 — live playgroup studio
+
+Start with **UPDATE_V5.md** to update an existing Railway service. v5 adds a phone-first live game tracker, separate player accounts and sealed feedback, transparent Scryfall deck analysis, safe source refresh previews, seasons and recap images, league pairing and standings, scheduled backups, integrity checks and an audit log. The iPhone **Add to Home Screen** workflow remains the intended mobile experience.
+
+## Previous release: v4 — artwork and usability
+
+See **UPDATE_V4.md** for the previous release notes.
 
 Commander art from Scryfall now decorates your collection, profiles, games and entry form. Tap art for a larger card view with artist credits. The update also adds mobile bottom navigation, an owner filter, quick-play actions, improved light/dark styling, readable connection errors and a per-device artwork switch. No additional database migration or Railway variables are needed for v3 users.
 
