@@ -1,4 +1,8 @@
-# Commander Ledger v6 — phone-first life table
+# Commander Ledger v7 — phone interface and visual decklists
+
+Start with **UPDATE_V7.md**. Phones now have a dedicated navigation shell and home launcher, touch-friendly filters and record cards, first-visit Home Screen help, visible live counter badges, and an optional Scryfall card-stack decklist viewer. Desktop retains its current layout. The deck-view preference is remembered per browser/device.
+
+## Previous release: v6 — phone-first life table
 
 Start with **UPDATE_V6.md**. The live table now uses a fixed, partitioned phone screen, commander-art backgrounds, tap/hold life zones, and button-operated counter overlays. It retains the v5 saving and recovery system and your existing iPhone Home Screen shortcut.
 

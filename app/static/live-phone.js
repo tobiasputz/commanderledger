@@ -34,6 +34,12 @@
  function sync(){init();if(!ready)return;const list=cards(),n=list.length;board.dataset.count=n;board.style.gridTemplateRows=`repeat(${n===2?1:Math.ceil(n/2)},minmax(0,1fr))`;if(n===2&&innerHeight>innerWidth)board.style.gridTemplateRows='repeat(2,minmax(0,1fr))';
   list.forEach((card,i)=>{card.classList.toggle('face-away',n===2?i===0:i<Math.floor(n/2));
    if(card.querySelector('.seat-controls'))return;
+   const badges=document.createElement('button');badges.type='button';badges.className='quadrant-counters';badges.setAttribute('aria-label','View counters for '+card.querySelector('h2').textContent);
+   const summary=[];card.querySelectorAll('[data-value]').forEach(input=>{const n=Number(input.value);if(n||input.dataset.value==='poison')summary.push(({'poison':'☠','energy':'ϟ','experience':'XP'}[input.dataset.value]||input.dataset.value)+' '+n)});
+   const damage=[...card.querySelectorAll('[data-damage]')].map(x=>Number(x.value));summary.push('⚔ max '+Math.max(0,...damage));
+   card.querySelectorAll('[data-casts]').forEach((x,j)=>{if(Number(x.value))summary.push('Tax '+(j+1)+': '+2*Number(x.value))});
+   summary.forEach(label=>{const span=document.createElement('span');span.textContent=label;badges.append(span)});
+   badges.title='⚔ shows the highest damage from one commander. Tap for all counters; Damage opens each commander separately.';badges.onclick=e=>{e.stopPropagation();showCounter(i,'counters')};card.append(badges);
    const controls=document.createElement('div');controls.className='seat-controls';controls.innerHTML='<button type="button" data-phone="damage">⚔ Damage</button><button type="button" data-phone="counters">◎</button>';controls.querySelectorAll('button').forEach(b=>b.onclick=e=>{e.stopPropagation();showCounter(i,b.dataset.phone)});card.append(controls);
    const loss=card.querySelector('[data-delta="-1"]'),gain=card.querySelector('[data-delta="1"]');loss.textContent='−';gain.textContent='+';
    // Card art is decorative here, never a competing tap target.
