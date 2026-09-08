@@ -1,6 +1,10 @@
-# Commander Ledger v7 — phone interface and visual decklists
+# Commander Ledger v8 — shared play access and seat mapping
 
-Start with **UPDATE_V7.md**. Phones now have a dedicated navigation shell and home launcher, touch-friendly filters and record cards, first-visit Home Screen help, visible live counter badges, and an optional Scryfall card-stack decklist viewer. Desktop retains its current layout. The deck-view preference is remembered per browser/device.
+Start with **UPDATE_V8.md**. Invited player accounts can now actually use the table: start live games, record games they participate in, browse their own game history, and create/edit their own decks without receiving administrator powers. The live tracker also gains seat reordering/rotation so the screen can match the physical table, plus cleaner phone life controls around the center hub.
+
+## Previous release: v7 — phone interface and visual decklists
+
+Start with **UPDATE_V7.md**. Phones have a dedicated navigation shell and home launcher, touch-friendly filters and record cards, first-visit Home Screen help, visible live counter badges, and an optional Scryfall card-stack decklist viewer. Desktop retains its current layout.
 
 ## Previous release: v6 — phone-first life table
 
@@ -320,12 +324,12 @@ These are explicitly placeholders, not claims that screenshots were captured.
 
 - Scryfall autocomplete, card images, Oracle metadata, canonical names, color identities and durable API caching are implemented. Commander eligibility and partner/background rules validation remain advisory/manual.
 - Real-browser visual and mobile interaction verification could not be completed in the build environment because its remote browser blocked access to the local server. Server-rendering, automated service/API tests and JavaScript checks are recorded separately in QA; CSS responsiveness is implemented but not visually certified here.
-- This is a single-owner local/hosted application, not a multi-account service. Named-rater attribution is an owner-entered field, not an authenticated submission from that player.
+- Hosted mode has one administrator/owner plus optional invited player accounts. Player accounts are intentionally play-scoped: their own decks, games they participate in, live tables they are seated at, and private feedback. Global management, backups, account administration and owner analytics remain administrator-only.
 - Commander/secondary-commander names are stored as one text field; no card database, spelling normalization, legality engine or automatic deck-site import is included. Color themes and Scryfall card previews are supported; arbitrary image uploads are not included.
 - Historical participant metadata is captured, but full decklist contents are not versioned per game. Ownership before the earliest recorded interval cannot be inferred.
 - Brackets and budget are manual estimates; no currency conversion, valuation or bracket-rule checks are performed.
 - Analytics loads the filtered game history in memory. This suits a personal playgroup; very large histories may require SQL aggregation and profile-history pagination.
-- No autosaved unfinished drafts, live life totals, tournament tiebreak systems, offline phone synchronization or automatic backup pruning. The requested completed-game workflow remains usable without these enhancements.
+- Device-local unfinished-entry recovery and live life totals are implemented. Offline phone synchronization and a general tournament-tiebreak engine are not; scheduled backup retention is handled by the playgroup maintenance tools rather than full offline replication.
 - SQLite/JSON backup restoration replaces the dataset. CSV imports and merging independent databases are not implemented.
 
 ## Upstream references

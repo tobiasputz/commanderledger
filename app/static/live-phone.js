@@ -6,16 +6,16 @@
  const q=s=>document.querySelector(s);let ready=false,gesture=null,page=0,seat=0,mode='counters';
  const cards=()=>[...board.querySelectorAll('.live-player-card')];
  // Tap-only quick start; saved players/decks can still be selected in setup.
- const setup=q('#live-setup-seats'),presets=document.createElement('div');presets.className='phone-presets';presets.innerHTML='<p>Phone table · v6 — choose seats, optionally choose decks, then start.</p><div class="actions"></div>';
+ const setup=q('#live-setup-seats'),presets=document.createElement('div');presets.className='phone-presets';presets.innerHTML='<p>Phone table · v8 — choose seats, optionally choose decks, then start.</p><div class="actions"></div>';
  [2,3,4,5,6].forEach(n=>{const b=document.createElement('button');b.type='button';b.className='button';b.textContent=n+' players';b.onclick=()=>{while(setup.children.length<n)q('#live-add').click();while(setup.children.length>n)setup.lastElementChild.remove();presets.querySelectorAll('button').forEach(x=>x.classList.toggle('primary',x===b))};presets.lastChild.append(b)});q('#live-create').prepend(presets);presets.querySelectorAll('button')[2].click();
  q('#live-create').addEventListener('submit',()=>{setup.querySelectorAll('.live-setup-row').forEach(row=>{if(!row.querySelector('.live-deck').value&&!row.querySelector('.live-description').value.trim())row.querySelector('.live-description').value='Untracked commander'})},true);
  function dialog(id,title){const d=document.createElement('dialog');d.id=id;d.className='phone-dialog';d.innerHTML=`<div class="dialog-head"><h2>${title}</h2><button type="button" class="dialog-close" aria-label="Close">×</button></div><div class="dialog-content"></div>`;d.querySelector('button').onclick=()=>d.close();document.body.append(d);return d}
- let counter,tools,finish,conflictDialog;
+ let counter,tools,finish,conflictDialog,seatsDialog;
  function press(i,delta){const b=cards()[i]?.querySelector(`[data-counter="life"][data-delta="${Math.sign(delta)}"]`);if(!b||b.disabled)return;board.onclick({target:{closest:()=>({dataset:{counter:'life',seat:String(i),delta:String(delta)}})}})}
  function init(){if(ready||session.hidden)return;ready=true;document.body.classList.add('phone-table');
   const viewport=document.querySelector('meta[name="viewport"]');if(viewport&&!viewport.content.includes('viewport-fit'))viewport.content+=', viewport-fit=cover';
   // Existing forms remain available for recording after play, not on the table.
-  counter=dialog('phone-counter','Counters');tools=dialog('phone-tools','Table tools · v6');finish=dialog('phone-finish','Finish game');conflictDialog=dialog('phone-conflict','Save conflict');
+  counter=dialog('phone-counter','Counters');tools=dialog('phone-tools','Table tools · v8');finish=dialog('phone-finish','Finish game');conflictDialog=dialog('phone-conflict','Save conflict');seatsDialog=dialog('phone-seats','Arrange seats');
   const oldToolbar=session.firstElementChild,oldNotes=board.nextElementSibling;
   oldToolbar.hidden=true;oldNotes.hidden=true;
   const conflict=q('#live-conflict');conflictDialog.querySelector('.dialog-content').append(conflict);
@@ -68,10 +68,29 @@
   const nav=document.createElement('div');nav.className='counter-pages';nav.innerHTML=`<button aria-label="Previous counter">‹</button><span>${page+1} / ${list.length}</span><button aria-label="Next counter">›</button>`;nav.firstChild.onclick=()=>{page=(page+list.length-1)%list.length;paintCounter()};nav.lastChild.onclick=()=>{page=(page+1)%list.length;paintCounter()};body.append(nav);
   const flags=document.createElement('div');flags.className='actions';const win=document.createElement('button');const original=cards()[seat].querySelector('[data-winner]');win.textContent=original.checked?'★ Winner':'☆ Set winner';win.onclick=()=>{const x=cards()[seat].querySelector('[data-winner]');x.checked=!x.checked;x.dispatchEvent(new Event('change',{bubbles:true}));paintCounter()};const out=document.createElement('button');out.textContent=cards()[seat].querySelector('[data-eliminate]').textContent;out.onclick=()=>{cards()[seat].querySelector('[data-eliminate]').click();paintCounter()};flags.append(win,out);body.append(flags);
  }
+
+ function screenPosition(i,n){
+  if(n===2)return innerHeight>innerWidth?(i===0?'top':'bottom'):(i===0?'left':'right');
+  if(n===3)return i===0?'top':(i===1?'bottom left':'bottom right');
+  const rows=Math.ceil(n/2),row=Math.floor(i/2);let vertical='middle';
+  if(row===0)vertical='top';else if(row===rows-1)vertical='bottom';
+  return vertical+' '+(i%2===0?'left':'right');
+ }
+
+ function showSeats(){
+  const state=window.ledgerLiveSeats?.state?.();if(!state)return;
+  const body=seatsDialog.querySelector('.dialog-content');body.replaceChildren();
+  const intro=document.createElement('p');intro.className='phone-result';intro.textContent='Match this order to the real table. Moving a seat also keeps turn order and commander-damage sources attached to the correct player.';body.append(intro);
+  const rotate=document.createElement('div');rotate.className='seat-rotate-actions';
+  for(const [label,dir] of [['Rotate left',-1],['Rotate right',1]]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{window.ledgerLiveSeats.rotate(dir);showSeats()};rotate.append(b)}body.append(rotate);
+  const list=document.createElement('div');list.className='phone-seat-list';body.append(list);
+  state.participants.forEach((p,i)=>{const row=document.createElement('div');row.className='phone-seat-row';const label=document.createElement('span'),name=(p.player_name||'LGS random').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));label.innerHTML=`<b>Seat ${i+1} · ${screenPosition(i,state.participants.length)}</b><small>${name}</small>`;const controls=document.createElement('div');for(const [symbol,to] of [['↑',i-1],['↓',i+1]]){const b=document.createElement('button');b.textContent=symbol;b.disabled=to<0||to>=state.participants.length;b.onclick=()=>{window.ledgerLiveSeats.move(i,to);showSeats()};controls.append(b)}row.append(label,controls);list.append(row)});
+  if(!seatsDialog.open)seatsDialog.showModal();
+ }
  function showTools(){const body=tools.querySelector('.dialog-content');body.replaceChildren();const status=document.createElement('p');status.className='phone-result';status.textContent=q('#live-turn').textContent+' · '+q('#live-clock').textContent;body.append(status);const grid=document.createElement('div');grid.className='phone-tools';body.append(grid);
   const actions=[['Undo','live-undo'],['Redo','live-redo'],[q('#live-timer').textContent,'live-timer'],['Keep awake','live-wake'],['Random first','live-random'],['Next turn','live-next']];for(const [label,id] of actions){const b=document.createElement('button');b.textContent=label;b.disabled=q('#'+id).disabled;b.onclick=()=>{q('#'+id).click();tools.close()};grid.append(b)}
-  for(const [label,fn] of [['Roll d20',()=>result('d20: '+random(20))],['Coin flip',()=>result(random(2)===1?'Heads':'Tails')],['Finish game',()=>{tools.close();finish.showModal()}],['Exit table',()=>{location.href='/table'}]]){const b=document.createElement('button');b.textContent=label;b.onclick=fn;grid.append(b)}
-  const r=document.createElement('p');r.className='phone-result';r.id='phone-dice';body.append(r);const hint=document.createElement('p');hint.textContent='Tap ±1 · Hold ±10 · Swipe sideways for damage · Up/down for counters';hint.style.fontSize='12px';body.append(hint);const saved=document.createElement('small');saved.textContent=q('#live-save-state').textContent;body.append(saved);if(!tools.open)tools.showModal();
+  for(const [label,fn] of [['Arrange seats',()=>{tools.close();showSeats()}],['Roll d20',()=>result('d20: '+random(20))],['Coin flip',()=>result(random(2)===1?'Heads':'Tails')],['Finish game',()=>{tools.close();finish.showModal()}],['Exit table',()=>{location.href=window.ledgerUser?.role==='member'?'/member':'/table'}]]){const b=document.createElement('button');b.textContent=label;b.onclick=fn;grid.append(b)}
+  const r=document.createElement('p');r.className='phone-result';r.id='phone-dice';body.append(r);const hint=document.createElement('p');hint.textContent='Tap ±1 · Hold ±10 · Swipe sideways for damage · Up/down for counters · Arrange seats from this menu';hint.style.fontSize='12px';body.append(hint);const saved=document.createElement('small');saved.textContent=q('#live-save-state').textContent;body.append(saved);if(!tools.open)tools.showModal();
  }
  function random(n){const a=new Uint32Array(1);crypto.getRandomValues(a);return a[0]%n+1}function result(t){q('#phone-dice').textContent=t}
  init();

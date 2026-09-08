@@ -14,6 +14,23 @@ from app.services.stats import select_games, group_records, record, matchups
 router=APIRouter(prefix='/api')
 CATALOG={'players':Player,'decks':Deck,'locations':Location,'events':Event}
 
+
+def _member_player(request: Request) -> str | None:
+    return request.state.player_id if getattr(request.state,'role','owner')=='member' else None
+
+def _member_game_guard(request: Request,game: Game) -> None:
+    pid=_member_player(request)
+    if pid and pid not in {p.player_id for p in game.participants}:
+        raise HTTPException(403,'You may only open games you participated in')
+
+def _member_payload_guard(request: Request,data: GameInput) -> None:
+    pid=_member_player(request)
+    if not pid:return
+    if pid not in {p.player_id for p in data.participants}:
+        raise HTTPException(403,'Your player account must be one of the seats in a game you create')
+    if data.overall_rating is not None or data.sportsmanship is not None or data.deck_ratings:
+        raise HTTPException(403,'Player accounts submit ratings through post-game feedback, not administrator quick ratings')
+
 def game_dict(g: Game, private: bool=False) -> dict:
     return {**dump_record(g),'participants':[dump_record(p) for p in sorted(g.participants,key=lambda p:p.seat)],'ratings':[dump_record(r,private) for r in g.ratings]}
 
@@ -129,16 +146,18 @@ def edit_catalog(kind: str,identity: str,data: CatalogInput,db: Session=Depends(
     db.commit(); return dump_record(obj)
 
 @router.post('/games')
-def create_game(data: GameInput,db: Session=Depends(get_db)) -> dict:
+def create_game(data: GameInput,request: Request,db: Session=Depends(get_db)) -> dict:
+    _member_payload_guard(request,data)
     obj=save_game(db,data); db.commit(); return game_dict(obj)
 
 @router.put('/games/{identity}')
-def edit_game(identity: str,data: GameInput,db: Session=Depends(get_db)) -> dict:
+def edit_game(identity: str,data: GameInput,request: Request,db: Session=Depends(get_db)) -> dict:
+    if _member_player(request):raise HTTPException(403,'Only the administrator can edit an already-recorded game')
     obj=save_game(db,data,identity); db.commit(); return game_dict(obj)
 
 @router.get('/games/{identity}')
-def get_game(identity: str, db: Session=Depends(get_db)) -> dict:
-    return game_dict(require(db,Game,identity))
+def get_game(identity: str,request: Request,db: Session=Depends(get_db)) -> dict:
+    game=require(db,Game,identity);_member_game_guard(request,game);return game_dict(game)
 
 class FlagInput(BaseModel):
     deleted: bool

@@ -1,5 +1,5 @@
 'use strict';
-const state=JSON.parse(document.querySelector('#entry-data').textContent),form=document.querySelector('#game-form'),container=document.querySelector('#participants');
+const state=JSON.parse(document.querySelector('#entry-data').textContent),form=document.querySelector('#game-form'),container=document.querySelector('#participants'),memberId=window.ledgerUser?.role==='member'?window.ledgerUser.player_id:null;
 const uid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let savingGame=false;
 let submissionKey=state.editing?state.game.submission_key:uid(),quickTarget=null,dirty=false;
@@ -18,7 +18,7 @@ function deckOptions(card,selected=''){
  const player=card.querySelector('[name=player_id]').value;
  const select=card.querySelector('[name=deck_id]');select.innerHTML='<option value="">Commander / deck description</option>';
  catalog.decks.filter(d=>(d.owner_id===player&&d.status==='active'&&!d.deleted_at)||(state.editing&&d.id===selected)).forEach(d=>select.add(new Option(`${d.name} · ${d.commanders}`,d.id)));
- select.value=selected;card.querySelector('.quick-deck').disabled=!player;
+ select.value=selected;card.querySelector('.quick-deck').disabled=!player||!!memberId&&player!==memberId;
  card.querySelector('.description-fields').hidden=!!selected;
 }
 function addSeat(random=false,data={}){
@@ -38,7 +38,7 @@ function addSeat(random=false,data={}){
  <div class="advanced"><label>Deck links (one per line)<textarea name="deck_links" rows="2">${escapeHtml((data.deck_links||[]).join('\n'))}</textarea></label><label>Archetype<input name="archetype" value="${escapeHtml(data.archetype||'')}"></label><label>Elimination order<input type="number" min="1" max="20" name="elimination" value="${state.editing?data.elimination||'':''}"></label><label>Seat notes<textarea name="seat_notes">${state.duplicate?'':escapeHtml(data.notes||'')}</textarea></label></div>`;
  container.append(card);fillRatings(card);
  const playerSelect=card.querySelector('[name=player_id]');playerSelect.value=data.player_id||(!random?catalog.players.find(p=>!p.archived&&!Array.from(container.querySelectorAll('[name=player_id]')).some(el=>el!==playerSelect&&el.value===p.id))?.id||'':'');
- function playerChanged(){const named=!!playerSelect.value;card.querySelector('.temporary-name').hidden=named;card.querySelector('.named-decks').hidden=!named;card.querySelector('.quick-deck').hidden=!named;deckOptions(card);dirty=true}
+ function playerChanged(){const named=!!playerSelect.value;card.querySelector('.temporary-name').hidden=named;card.querySelector('.named-decks').hidden=!named;card.querySelector('.quick-deck').hidden=!named||!!memberId&&playerSelect.value!==memberId;deckOptions(card);dirty=true}
  playerSelect.addEventListener('change',playerChanged);playerChanged();deckOptions(card,data.deck_id||'');
  card.querySelector('[name=deck_id]').onchange=e=>{card.querySelector('.description-fields').hidden=!!e.target.value;loadSeatVersions(card);dirty=true};
  playerSelect.addEventListener('change',()=>loadSeatVersions(card));
@@ -49,16 +49,16 @@ function addSeat(random=false,data={}){
  card.querySelector('.quick-deck').onclick=()=>{quickTarget=card;document.querySelector('#quick-deck-form').reset();document.querySelector('#quick-dialog').showModal()};
  if(state.editing){card.querySelector('[name=winner]').checked=!!data.winner;card.querySelector('[name=starting-seat]').checked=!!data.starting;const r=initial.ratings.find(r=>r.kind==='deck'&&r.participant_id===data.id&&!r.rater_id);card.querySelector('[name=deck_rating]').value=r?.value||''}
  card.querySelector('[name=winner]').onchange=e=>{if(form.elements.result.value==='win'&&e.target.checked)container.querySelectorAll('[name=winner]').forEach(el=>{if(el!==e.target)el.checked=false})};
- if(window.htmx)htmx.process(card);updateSeats();syncResult();
+ if(memberId)card.querySelector('[name=deck_rating]').closest('label').hidden=true;if(window.htmx)htmx.process(card);updateSeats();syncResult();
 }
 function syncResult(){const result=form.elements.result.value;container.querySelectorAll('[name=winner]').forEach(el=>{el.disabled=!['win','shared'].includes(result);if(el.disabled)el.checked=false});document.querySelector('#entry-hint').textContent=result==='win'?'Select one winner on their participant card.':result==='shared'?'Select every shared winner.':'This result has no winner.'}
 document.querySelector('#add-named').onclick=()=>addSeat(false);
 document.querySelector('#add-random').onclick=()=>addSeat(true);
 document.querySelector('#detailed').onchange=e=>form.classList.toggle('detailed',e.target.checked);
 form.elements.result.onchange=syncResult;
-if(initial)initial.participants.forEach(p=>addSeat(!p.player_id,state.duplicate?{...p,deck_version_id:null}:p));else{addSeat(false);addSeat(catalog.players.filter(p=>!p.archived).length<2)}
+if(initial)initial.participants.forEach(p=>addSeat(!p.player_id,state.duplicate?{...p,deck_version_id:null}:p));else{addSeat(false,memberId?{player_id:memberId}:{});addSeat(catalog.players.filter(p=>!p.archived).length<2)}
 if(state.editing){document.querySelector('#detailed').checked=true;form.classList.add('detailed')}
-document.querySelector('#quick-deck-form').onsubmit=async e=>{e.preventDefault();const f=e.target;const data={name:f.elements.name.value,commanders:f.elements.commanders.value,color_identity:f.elements.color_identity.value,owner_id:quickTarget.querySelector('[name=player_id]').value,links:f.elements.link.value?[f.elements.link.value]:[]};try{const deck=await api('/api/decks',data);catalog.decks.push(deck);deckOptions(quickTarget,deck.id);loadSeatVersions(quickTarget);dirty=true;document.querySelector('#quick-dialog').close();toast('Deck created')}catch(err){toast(err.message,true)}};
+document.querySelector('#quick-deck-form').onsubmit=async e=>{e.preventDefault();const f=e.target;const data={name:f.elements.name.value,commanders:f.elements.commanders.value,color_identity:f.elements.color_identity.value,owner_id:quickTarget.querySelector('[name=player_id]').value,links:f.elements.link.value?[f.elements.link.value]:[]};try{const deck=await api(memberId?'/api/member/decks':'/api/decks',data);catalog.decks.push(deck);deckOptions(quickTarget,deck.id);loadSeatVersions(quickTarget);dirty=true;document.querySelector('#quick-dialog').close();toast('Deck created')}catch(err){toast(err.message,true)}};
 form.addEventListener('input',()=>dirty=true);
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});dirty=false;
 form.onsubmit=async e=>{e.preventDefault();if(savingGame)return;savingGame=true;const nextGame=e.submitter?.name==='next-game';const button=document.querySelector('#save-game');button.disabled=true;const error=document.querySelector('#form-error');error.textContent='';try{

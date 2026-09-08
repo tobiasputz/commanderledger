@@ -62,3 +62,10 @@ Docker is not available in the build environment, so no Docker image build or ac
 Additional JavaScript DOM checks passed for second-commander autocomplete, card preview, applying canonical names and combined colors, and preservation of a custom commander during an API outage. All application scripts pass syntax checks.
 
 Live Scryfall verification could not complete: this environment's network approval was cancelled before a response was returned. API behavior was verified with HTTPX mock transports, including failure/rate-limit paths; a successful live Scryfall response is not claimed. The proxy-dependent test also identified a missing optional SOCKS dependency; socksio is now included in requirements, and proxy setup failures degrade to manual entry.
+
+
+## v8 shared-play verification
+
+**71 Python tests passed** after the v8 changes. New hosted-member coverage verifies that an invited player can open the player home, live tracker, normal game-entry screen and own game history; can create a game only when their player identity is seated; can create a live table only when seated; and can create/edit their own decks. The same test verifies that Settings, player administration, the global catalog API, another player's deck mutation, generic game JSON, and already-recorded game editing remain forbidden to the member role.
+
+The v8 live-seat implementation remaps active/start indices and commander-damage source indices whenever seats move. Modified application JavaScript passes Node syntax checking and the Python package passes bytecode compilation. Real-phone visual QA is still environment-dependent; v8 specifically reduces center-hub crowding by moving visible life +/- glyphs inward while retaining full half-quadrant touch targets.

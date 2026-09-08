@@ -13,7 +13,7 @@ from app.services.games import require,save_game
 from app.services.backup import dump_record,export_json,restore_json
 from app.services.stats import select_games,record,group_records
 from app.services.leagues import pair,standings,guard_game
-from app.security import config,connect,LOGIN_COOKIE,login_attempt
+from app.security import config,connect,COOKIE,LOGIN_COOKIE,login_attempt,create_session
 from app.services.accounts import issue,accept,list_accounts
 router=APIRouter()
 
@@ -35,36 +35,51 @@ def validate_live(db,state):
 @router.get('/live')
 def studio(request: Request,db: Session=Depends(get_db)):
     from app.routes.pages import context,templates
-    return templates.TemplateResponse(request=request,name='studio.html',context=context(db,live_mode=request.url.path=='/live'))
+    return templates.TemplateResponse(request=request,name='studio.html',context=context(db,request,live_mode=request.url.path=='/live'))
+
+def member_live_guard(request:Request,obj:LiveGame,state=None):
+    if getattr(request.state,'role','owner')!='member':return
+    pid=request.state.player_id
+    existing={p.get('player_id') for p in (obj.state or {}).get('participants',[])}
+    if pid not in existing:raise HTTPException(403,'You may only open live tables you are seated in')
+    if state is not None and pid not in {p.player_id for p in state.participants}:
+        raise HTTPException(403,'Your player account must remain seated in this live table')
 
 @router.get('/api/live')
-def lives(db: Session=Depends(get_db)):
-    return [dump_record(g) for g in db.scalars(select(LiveGame).order_by(LiveGame.created_at.desc()).limit(100))]
+def lives(request:Request,db: Session=Depends(get_db)):
+    rows=list(db.scalars(select(LiveGame).order_by(LiveGame.created_at.desc()).limit(100)))
+    if getattr(request.state,'role','owner')=='member':
+        pid=request.state.player_id;rows=[g for g in rows if pid in {p.get('player_id') for p in (g.state or {}).get('participants',[])}]
+    return [dump_record(g) for g in rows]
 @router.post('/api/live')
-def create_live(data: LiveCreate,db: Session=Depends(get_db)):
+def create_live(data: LiveCreate,request:Request,db: Session=Depends(get_db)):
     state=validate_live(db,data.state)
+    if getattr(request.state,'role','owner')=='member' and request.state.player_id not in {p.player_id for p in state.participants}:
+        raise HTTPException(403,'Your player account must be one of the seats in a live game you create')
     obj=LiveGame(name=data.name,state=state.model_dump());db.add(obj);db.commit();return dump_record(obj)
 @router.get('/api/live/{identity}')
-def read_live(identity: str,db: Session=Depends(get_db)):return dump_record(require(db,LiveGame,identity))
+def read_live(identity: str,request:Request,db: Session=Depends(get_db)):
+    obj=require(db,LiveGame,identity);member_live_guard(request,obj);return dump_record(obj)
 
-def update_live(db,identity,data):
+def update_live(db,identity,data,request=None):
     obj=require(db,LiveGame,identity)
+    if request is not None:member_live_guard(request,obj,data.state)
     if obj.game_id:raise HTTPException(409,'This live game is already complete')
     validate_live(db,data.state)
     result=db.execute(update(LiveGame).where(LiveGame.id==identity,LiveGame.revision==data.revision,LiveGame.game_id.is_(None)).values(state=data.state.model_dump(),revision=data.revision+1,updated_at=now()))
     if result.rowcount!=1:raise HTTPException(409,'Another device saved a newer revision. Keep your local copy, then reload the server state.')
     db.flush();db.refresh(obj);return obj
 @router.put('/api/live/{identity}')
-def put_live(identity: str,data: LiveUpdate,db: Session=Depends(get_db)):
-    obj=update_live(db,identity,data);db.commit();return dump_record(obj)
+def put_live(identity: str,data: LiveUpdate,request:Request,db: Session=Depends(get_db)):
+    obj=update_live(db,identity,data,request);db.commit();return dump_record(obj)
 @router.post('/api/live/{identity}/finish')
-def finish_live(identity: str,data: LiveFinish,db: Session=Depends(get_db)):
-    obj=require(db,LiveGame,identity)
+def finish_live(identity: str,data: LiveFinish,request:Request,db: Session=Depends(get_db)):
+    obj=require(db,LiveGame,identity);member_live_guard(request,obj,data.state)
     if obj.game_id:return {'game_id':obj.game_id}
-    obj=update_live(db,identity,data);state=data.state
+    obj=update_live(db,identity,data,request);state=data.state
     elapsed=state.elapsed+max(0,int(time.time()*1000)-(state.timer_since or int(time.time()*1000)))
     participants=[{'player_id':p.player_id,'deck_id':p.deck_id,'player_name':p.player_name,'deck_name':p.deck_name,'commanders':p.commanders,'seat':i+1,'starting':i==state.starting,'winner':p.winner if data.result in ('win','shared') else False,'elimination':None if p.winner else p.elimination} for i,p in enumerate(state.participants)]
-    values=GameInput(played_at=state.started_at,location_id=state.location_id,event_id=state.event_id,result=data.result,duration=max(1,round(elapsed/60000)),turns=state.turn,notes=state.notes,memorable=data.memorable,overall_rating=data.enjoyment,participants=participants,submission_key='live-'+identity)
+    values=GameInput(played_at=state.started_at,location_id=state.location_id,event_id=state.event_id,result=data.result,duration=max(1,round(elapsed/60000)),turns=state.turn,notes=state.notes,memorable=data.memorable,overall_rating=None if getattr(request.state,'role','owner')=='member' else data.enjoyment,participants=participants,submission_key='live-'+identity)
     game=save_game(db,values);obj.game_id=game.id;db.commit();return {'game_id':game.id}
 
 class InviteInput(Input):player_id:str
@@ -103,9 +118,13 @@ def join_post(request:Request,token:str=Form(max_length=200),username:str=Form(m
     cfg=config()
     if not csrf or not hmac.compare_digest(csrf,request.cookies.get(LOGIN_COOKIE,'')):raise HTTPException(403,'Reload the invitation and try again')
     if not login_attempt(cfg,request.client.host if request.client else 'unknown'):raise HTTPException(429,'Too many attempts; try later')
-    try:accept(cfg,token,username,password)
+    try:username=accept(cfg,token,username,password)
     except ValueError as exc:raise HTTPException(422,str(exc))
-    return RedirectResponse('/login',status_code=303)
+    raw=create_session(cfg,username)
+    response=RedirectResponse('/member',status_code=303)
+    response.set_cookie(COOKIE,raw,max_age=7*86400,secure=cfg.hosted,httponly=True,samesite='strict',path='/')
+    response.delete_cookie(LOGIN_COOKIE,secure=cfg.hosted,httponly=True,samesite='strict')
+    return response
 
 def member_id(request,db):
     pid=request.state.player_id

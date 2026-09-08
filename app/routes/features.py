@@ -61,10 +61,13 @@ def new_version(identity: str,data: VersionInput,db: Session=Depends(get_db)):
     v=snapshot(db,deck,data.name);db.commit();return dump_record(v)
 
 @router.get('/api/decks/{identity}/versions')
-def versions(identity: str,db: Session=Depends(get_db)):
+def versions(identity: str,request:Request,db: Session=Depends(get_db)):
     require(db,Deck,identity)
+    versions=list(db.scalars(select(DeckVersion).where(DeckVersion.deck_id==identity).order_by(DeckVersion.created_at.desc(),DeckVersion.id.desc())))
+    if getattr(request.state,'role','owner')=='member':
+        return {'versions':[{k:getattr(v,k) for k in ('id','name','created_at','commanders')} for v in versions],'unrecorded':{}}
     pairs=[(g,p) for g in select_games(db,{'deck_id':identity}) for p in g.participants if p.deck_id==identity]
-    rows=[{**dump_record(v),'stats':record([(g,p) for g,p in pairs if p.deck_version_id==v.id])} for v in db.scalars(select(DeckVersion).where(DeckVersion.deck_id==identity).order_by(DeckVersion.created_at.desc(),DeckVersion.id.desc()))]
+    rows=[{**dump_record(v),'stats':record([(g,p) for g,p in pairs if p.deck_version_id==v.id])} for v in versions]
     return {'versions':rows,'unrecorded':record([(g,p) for g,p in pairs if not p.deck_version_id])}
 
 class PreviewInput(Input):

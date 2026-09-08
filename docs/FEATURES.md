@@ -20,7 +20,8 @@
 | Search/tables | Global search; game filters/sort/server pagination; collection filter/sort/pagination; generic data-table filter/sort/pagination |
 | Recovery | Online SQLite snapshots; settings directory/manual backup; startup/pre-migration/pre-merge/pre-restore snapshots; full JSON restore validation |
 | Exports | Full JSON; CSV games/participants/players/decks/ratings; text game history; private notes omitted from ordinary exports |
-| Interface | Dark/light theme; responsive layouts; focus/skip-link support; native touch controls; status/errors; empty states |
+| Interface | Dark/light theme; responsive desktop/phone shells; touch life tracker; corner counters; seat reordering/rotation; focus/skip-link support; status/errors; empty states |
+| Player accounts | Invited non-admin users can start/live-track games they are seated in, record games containing themselves, view their own history, manage only their own decks, and submit private feedback |
 | Delivery | Windows and Unix launchers; initialization/demo/backup commands; pinned requirements; environment example; migrations; tests; README |
 
 ## Explicit choices
@@ -38,7 +39,7 @@
 
 ## Deferred / outside scope
 
-Rules-complete commander/partner validation remains manual. Scryfall suggestions, metadata, images and caching are now implemented, as is single-owner hosted authentication. There is no managed cloud account created for you, external deck-site importer, CSV import, draft autosave, live life counter or tournament tiebreak engine. These are documented scope limits, not nonfunctional controls in the UI.
+Rules-complete commander/partner validation remains manual. Scryfall suggestions, metadata, images and caching, public deck-site import, device-local entry recovery, the live life tracker, owner authentication, and invited player accounts are implemented. There is no managed cloud account created for you, CSV merge import, offline multi-device synchronization, or general tournament-tiebreak engine. These are documented scope limits, not nonfunctional controls in the UI.
 
 ## v2 additions
 

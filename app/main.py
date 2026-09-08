@@ -70,8 +70,24 @@ async def security_boundary(request: Request,call_next: Callable) -> Response:
         request.state.role=active.get('role','owner')
         request.state.player_id=active.get('player_id')
         request.state.username=active.get('username','owner')
-        if request.state.role=='member' and not (request.url.path=='/member' or request.url.path.startswith('/api/member/') or request.url.path.startswith('/api/scryfall/') or request.url.path=='/logout'):
-            return JSONResponse({'detail':'This page is for the administrator. Open /member for your player portal.'},status_code=403)
+        if request.state.role=='member':
+            path=request.url.path
+            method=request.method
+            page_allowed=(
+                path in ('/member','/live','/games','/games/new','/logout')
+                or (path.startswith('/games/') and path!='/games/new')
+            )
+            api_allowed=(
+                path.startswith('/api/member/')
+                or path.startswith('/api/scryfall/')
+                or (path=='/api/live' and method in ('GET','POST'))
+                or (path.startswith('/api/live/') and method in ('GET','PUT','POST'))
+                or (path=='/api/games' and method=='POST')
+                or (path=='/api/pods' and method=='GET')
+                or (path.startswith('/api/decks/') and path.endswith('/versions') and method=='GET')
+            )
+            if not (page_allowed or api_allowed):
+                return JSONResponse({'detail':'This action is reserved for the ledger administrator.'},status_code=403)
         if writing and not hmac.compare_digest(request.headers.get('x-csrf-token',''),active['csrf']):
             return JSONResponse({'detail':'Session verification failed. Reload the page and retry.'},status_code=403)
     from app.services.audit import actor

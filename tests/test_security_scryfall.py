@@ -192,3 +192,107 @@ def test_artwork_faces_and_missing_card_fallback(tmp_path):
     assert c.artwork('Double Face')['cards'][0]['artist']=='Face Artist'
     missing=ScryfallClient(tmp_path/'missing.db',httpx.MockTransport(lambda r:httpx.Response(404,json={})))
     assert missing.artwork('My custom commander')=={'cards':[],'available':False}
+
+def test_member_accounts_can_play_without_admin_access(secured,records,db,monkeypatch):
+    """Invited players are table participants, not read-only deck viewers or admins."""
+    client,cfg=secured
+    players,decks=records
+    import app.routes.playgroup as playgroup
+    monkeypatch.setattr(playgroup,'config',lambda:cfg)
+
+    decks[0].decklist='1 Very Secret Test Card\n99 Hidden Basics'
+    decks[0].notes='private owner-only test note'
+    db.commit()
+    with security.connect(cfg) as con:
+        con.execute('INSERT INTO accounts VALUES (?,?,?,0)',('alice',players[0].id,security.hash_password('member passphrase 123')))
+    raw=security.create_session(cfg,'alice')
+    client.cookies.set(security.COOKIE,raw,domain='ledger.example')
+
+    home=client.get('/member')
+    assert home.status_code==200
+    assert 'Start live game' in home.text and 'Record a game' in home.text and 'My decks' in home.text
+    csrf=re.search('name="csrf-token" content="([^"]+)"',home.text).group(1)
+    headers={'X-CSRF-Token':csrf,'Origin':'https://ledger.example'}
+
+    # The shared play screens are available, but their bootstrap catalog is redacted.
+    live_page=client.get('/live')
+    assert live_page.status_code==200
+    assert 'Very Secret Test Card' not in live_page.text
+    assert 'private owner-only test note' not in live_page.text
+    assert client.get('/games/new').status_code==200
+    assert client.get('/games').status_code==200
+
+    # Administrator surfaces remain unavailable.
+    assert client.get('/settings').status_code==403
+    assert client.get('/manage/players').status_code==403
+    assert client.get('/api/catalog').status_code==403
+
+    # Deck creation/editing is useful to the member, but ownership is enforced server-side.
+    own_deck={'owner_id':players[0].id,'name':'Member Brew','commanders':'Member Commander'}
+    assert client.post('/api/member/decks',json=own_deck,headers=headers).status_code==200
+    renamed={**own_deck,'name':'Member Brew v2'}
+    assert client.put(f'/api/member/decks/{decks[0].id}',json=renamed,headers=headers).status_code==200
+    not_mine={'owner_id':players[1].id,'name':'Hands off','commanders':'Other Commander'}
+    assert client.post('/api/member/decks',json=not_mine,headers=headers).status_code==403
+    assert client.post(f'/api/member/decks/{decks[1].id}/trash',json={'deleted':True},headers=headers).status_code==403
+
+    from conftest import payload
+    own_game=payload(records,size=3)
+    created=client.post('/api/games',json=own_game,headers=headers)
+    assert created.status_code==200
+    game_id=created.json()['id']
+    assert client.get(f'/games/{game_id}').status_code==200
+    # Generic game JSON includes administrator-side rating data, so members use the safe page instead.
+    assert client.get(f'/api/games/{game_id}').status_code==403
+    duplicate_page=client.get(f'/games/new?duplicate={game_id}')
+    import json
+    entry=json.loads(re.search(r'<script id="entry-data" type="application/json">(.*?)</script>',duplicate_page.text,re.S).group(1))
+    assert entry['game']['ratings']==[]
+
+    # A member cannot create a result for a table they were not seated at.
+    other_game=payload(records,size=4,result='draw')
+    other_game['participants']=other_game['participants'][1:]
+    for seat,part in enumerate(other_game['participants'],1):part['seat']=seat
+    denied=client.post('/api/games',json=other_game,headers=headers)
+    assert denied.status_code==403
+
+    # A member can start a live table they are actually sitting at.
+    state={
+        'participants':[
+            {'player_id':players[0].id,'deck_id':decks[0].id,'life':40,'damage':{},'casts':[0,0]},
+            {'player_id':players[1].id,'deck_id':decks[1].id,'life':40,'damage':{},'casts':[0,0]},
+        ],
+        'started_at':'2026-09-08T12:00:00+02:00','turn':1,'active':0,'starting':0,'elapsed':0,'notes':''
+    }
+    live=client.post('/api/live',json={'name':'Member table','state':state},headers=headers)
+    assert live.status_code==200
+    live_id=live.json()['id']
+    assert client.get(f'/api/live/{live_id}').status_code==200
+    assert any(row['id']==live_id for row in client.get('/api/live').json())
+
+    no_self={**state,'participants':state['participants'][1:]+[
+        {'player_id':players[2].id,'deck_id':decks[2].id,'life':40,'damage':{},'casts':[0,0]}
+    ]}
+    assert client.post('/api/live',json={'name':'Not my table','state':no_self},headers=headers).status_code==403
+
+    # Member writes stay scoped: no editing old games through admin APIs.
+    assert client.put(f'/api/games/{game_id}',json=own_game,headers=headers).status_code==403
+
+def test_invitation_finishes_in_play_ready_member_home(secured,records,monkeypatch):
+    client,cfg=secured
+    import app.routes.playgroup as playgroup
+    from app.services.accounts import issue
+    monkeypatch.setattr(playgroup,'config',lambda:cfg)
+    invitation=issue(cfg,records[0][0].id)
+    page=client.get('/join')
+    csrf=re.search('name="csrf" value="([^"]+)"',page.text).group(1)
+    response=client.post('/join',data={
+        'token':invitation,
+        'username':'alice',
+        'password':'member passphrase 123',
+        'csrf':csrf,
+    },follow_redirects=False)
+    assert response.status_code==303 and response.headers['location']=='/member'
+    home=client.get('/member')
+    assert home.status_code==200
+    assert 'Start live game' in home.text and 'Record a game' in home.text

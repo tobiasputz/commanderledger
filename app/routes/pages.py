@@ -17,13 +17,26 @@ templates=Jinja2Templates(directory=ROOT/'app/templates')
 templates.env.filters['pct']=lambda v: '—' if v is None else f'{v*100:.1f}%'
 templates.env.filters['num']=lambda v: '—' if v is None else f'{v:.2f}'
 
-def context(db: Session,**kwargs: object) -> dict:
+def context(db: Session,request: Request | None=None,**kwargs: object) -> dict:
     cat=catalog(db)
     settings={s.key:s.value for s in db.scalars(select(Setting))}
-    from app.security import config
-    import os
-    if config().hosted: settings['backup_directory']=os.environ['COMMANDER_BACKUPS']
+    member=bool(request and getattr(request.state,'role','owner')=='member')
+    if member:
+        cat={
+            'players':[{k:p.get(k) for k in ('id','name','archived','color')} for p in cat['players']],
+            'decks':[{k:d.get(k) for k in ('id','name','owner_id','commanders','color_identity','status','deleted_at','color')} for d in cat['decks']],
+            'locations':[{k:x.get(k) for k in ('id','name','archived')} for x in cat['locations']],
+            'events':[{k:x.get(k) for k in ('id','name','archived')} for x in cat['events']],
+        }
+        settings={k:v for k,v in settings.items() if k in ('rating_labels','current_event')}
+    else:
+        from app.security import config
+        import os
+        if config().hosted: settings['backup_directory']=os.environ['COMMANDER_BACKUPS']
     return {'catalog':cat,'names':{x['id']:x['name'] for values in cat.values() for x in values},'settings':settings,**kwargs}
+
+def member_player(request: Request) -> str | None:
+    return request.state.player_id if getattr(request.state,'role','owner')=='member' else None
 
 def chart(title: str,x: list,y: list,second: list | None = None,kind: str='bar',hovertext: list[str] | None = None) -> dict:
     fig=go.Figure()
@@ -39,32 +52,47 @@ def chart(title: str,x: list,y: list,second: list | None = None,kind: str='bar',
 def home(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
     games=select_games(db)
     players=group_records(games,'player_id'); decks=group_records(games,'deck_id')
-    return templates.TemplateResponse(request=request,name='home.html',context=context(db,games=games[:6],total=len(games),players=sorted(players,key=lambda r:r['games'],reverse=True)[:5],decks=sorted(decks,key=lambda r:r['games'],reverse=True)[:5],enjoyment=ratings_summary([r.value for g in games for r in g.ratings if r.kind=='overall']),duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None))
+    return templates.TemplateResponse(request=request,name='home.html',context=context(db,request,games=games[:6],total=len(games),players=sorted(players,key=lambda r:r['games'],reverse=True)[:5],decks=sorted(decks,key=lambda r:r['games'],reverse=True)[:5],enjoyment=ratings_summary([r.value for g in games for r in g.ratings if r.kind=='overall']),duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None))
 
 @router.get('/games/new')
 def new_game(request: Request,duplicate: str='',edit: str='',db: Session=Depends(get_db)) -> HTMLResponse:
-    data=game_dict(require(db,Game,edit or duplicate)) if edit or duplicate else None
-    return templates.TemplateResponse(request=request,name='entry.html',context=context(db,initial=data,editing=edit,duplicate=bool(duplicate)))
+    pid=member_player(request)
+    if pid and edit:raise HTTPException(403,'Player accounts can create games, but only the administrator can edit recorded games')
+    source=require(db,Game,edit or duplicate) if edit or duplicate else None
+    if pid and source and pid not in {p.player_id for p in source.participants}:raise HTTPException(403,'You may only reuse a pod from a game you participated in')
+    data=game_dict(source) if source else None
+    if pid and data:
+        # Duplicate-pod setup needs seats/decks, never administrator or sealed rating rows.
+        data['ratings']=[]
+    return templates.TemplateResponse(request=request,name='entry.html',context=context(db,request,initial=data,editing=edit,duplicate=bool(duplicate)))
 
 @router.get('/games')
 def games_page(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
     f=dict(request.query_params)
+    pid=member_player(request)
+    if pid:
+        f['player_id']=pid
+        f.pop('trash',None)
     games=list(db.scalars(select(Game).where(Game.deleted==True).order_by(Game.played_at.desc()))) if f.get('trash') else select_games(db,f)
     try: page=max(1,int(f.get('page',1)))
     except ValueError: page=1
     if f.get('sort')=='oldest': games.reverse()
     if f.get('sort')=='duration': games.sort(key=lambda g:g.duration or 0,reverse=True)
     total=len(games)
-    return templates.TemplateResponse(request=request,name='games.html',context=context(db,games=games[(page-1)*20:page*20],total=total,page=page,filters=f))
+    return templates.TemplateResponse(request=request,name='games.html',context=context(db,request,games=games[(page-1)*20:page*20],total=total,page=page,filters=f))
 
 @router.get('/games/{identity}')
 def game_page(identity: str,request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
-    return templates.TemplateResponse(request=request,name='game.html',context=context(db,game=require(db,Game,identity),version_names={v.id:v.name for v in db.scalars(select(DeckVersion))}))
+    game=require(db,Game,identity);pid=member_player(request)
+    if pid:
+        if pid not in {p.player_id for p in game.participants}:raise HTTPException(403,'You may only open games you participated in')
+        return templates.TemplateResponse(request=request,name='member_game.html',context=context(db,request,game=game))
+    return templates.TemplateResponse(request=request,name='game.html',context=context(db,request,game=game,version_names={v.id:v.name for v in db.scalars(select(DeckVersion))}))
 
 @router.get('/manage/{kind}')
 def manage(kind: str,request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
     if kind not in ('players','decks','locations','events'): raise HTTPException(404)
-    return templates.TemplateResponse(request=request,name='manage.html',context=context(db,kind=kind))
+    return templates.TemplateResponse(request=request,name='manage.html',context=context(db,request,kind=kind))
 
 @router.get('/profiles/{kind}/{identity}')
 def profile(kind: str,identity: str,request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
@@ -100,7 +128,7 @@ def profile(kind: str,identity: str,request: Request,db: Session=Depends(get_db)
     event_enjoyment=ratings_summary([r.value for g in games for r in g.ratings if r.kind=='overall'])
     charts=[chart('Deck enjoyment distribution',list(stats['enjoyment']['distribution']),list(stats['enjoyment']['distribution'].values())),chart('Results over time — fractional win share (%)',[r['name'] for r in breakdown(pairs,'month')],[100*(r['win_share'] or 0) for r in breakdown(pairs,'month')])]
     history=list(db.scalars(select(Ownership).where(Ownership.deck_id==identity))) if kind=='decks' else []
-    return templates.TemplateResponse(request=request,name='profile.html',context=context(db,obj=obj,kind=kind,games=games,stats=stats,records=records,event_decks=len({p.deck_id or p.deck_name or p.commanders for g in games for p in g.participants}),matchups=matchup_rows,minimum=threshold,favorite=favorite,difficult=difficult,best=best,enjoyed=enjoyed,event_enjoyment=event_enjoyment,event_duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None,seat_records=breakdown(pairs,'seat'),location_records=breakdown(pairs,'location'),before=before,after=after,filters=filters,charts=charts,history=history))
+    return templates.TemplateResponse(request=request,name='profile.html',context=context(db,request,obj=obj,kind=kind,games=games,stats=stats,records=records,event_decks=len({p.deck_id or p.deck_name or p.commanders for g in games for p in g.participants}),matchups=matchup_rows,minimum=threshold,favorite=favorite,difficult=difficult,best=best,enjoyed=enjoyed,event_enjoyment=event_enjoyment,event_duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None,seat_records=breakdown(pairs,'seat'),location_records=breakdown(pairs,'location'),before=before,after=after,filters=filters,charts=charts,history=history))
 
 @router.get('/analytics')
 def analytics(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
@@ -127,7 +155,7 @@ def analytics(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
     segments=[]
     for name,subset in [('LGS games',[g for g in games if g.setting=='LGS']),('Private playgroup',[g for g in games if g.setting=='home']),('Known-player pods',[g for g in games if all(p.player_id for p in g.participants)]),('Mixed pods',[g for g in games if any(p.player_id for p in g.participants) and any(p.player_id is None for p in g.participants)])]:
         segments.append({'name':name,'games':len(subset),'enjoyment':ratings_summary([r.value for g in subset for r in g.ratings if r.kind=='overall'])})
-    return templates.TemplateResponse(request=request,name='analytics.html',context=context(db,filters=f,total=len(games),players=ranked_players,decks=ranked_decks,enjoyable=enjoyable,all_players=players,all_decks=decks,minimum=threshold,charts=charts,segments=segments,overall=ratings_summary([r.value for g in games for r in g.ratings if r.kind=='overall']),average_duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None,most_player=max(ranked_players,key=lambda r:r['games']) if ranked_players else None,most_deck=max(ranked_decks,key=lambda r:r['games']) if ranked_decks else None,lgs=record([(g,p) for g in games for p in g.participants if p.player_id is None])))
+    return templates.TemplateResponse(request=request,name='analytics.html',context=context(db,request,filters=f,total=len(games),players=ranked_players,decks=ranked_decks,enjoyable=enjoyable,all_players=players,all_decks=decks,minimum=threshold,charts=charts,segments=segments,overall=ratings_summary([r.value for g in games for r in g.ratings if r.kind=='overall']),average_duration=round(mean([g.duration for g in games if g.duration]),1) if any(g.duration for g in games) else None,most_player=max(ranked_players,key=lambda r:r['games']) if ranked_players else None,most_deck=max(ranked_decks,key=lambda r:r['games']) if ranked_decks else None,lgs=record([(g,p) for g in games for p in g.participants if p.player_id is None])))
 
 @router.get('/settings')
 def settings_page(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
@@ -137,7 +165,7 @@ def settings_page(request: Request,db: Session=Depends(get_db)) -> HTMLResponse:
 def search(request: Request,q: str='',db: Session=Depends(get_db)) -> HTMLResponse:
     cat=catalog(db)
     results={k:[x for x in values if q.casefold() in ' '.join(str(v) for v in x.values()).casefold()] for k,values in cat.items()} if q else {}
-    return templates.TemplateResponse(request=request,name='search.html',context=context(db,results=results,games=select_games(db,{'q':q})[:50] if q else [],q=q))
+    return templates.TemplateResponse(request=request,name='search.html',context=context(db,request,results=results,games=select_games(db,{'q':q})[:50] if q else [],q=q))
 
 @router.get('/fragments/decks')
 def deck_options(request: Request,player_id: str='',db: Session=Depends(get_db)) -> HTMLResponse:
