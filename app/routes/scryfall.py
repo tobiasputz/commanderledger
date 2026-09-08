@@ -11,3 +11,8 @@ def autocomplete(q: str=Query(min_length=2,max_length=100)) -> dict:
 def lookup(names: str=Query(min_length=2,max_length=300)) -> dict:
     try: return client.lookup(names.strip())
     except ScryfallError as exc: raise HTTPException(503,str(exc))
+
+
+@router.get('/artwork')
+def artwork(names: str=Query(min_length=1,max_length=300)) -> dict:
+    return client.artwork(names.strip())

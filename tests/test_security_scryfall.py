@@ -171,3 +171,24 @@ def test_login_second_tab_and_missing_cookie_recovery(secured):
     fresh=re.search('name="csrf" value="([^"]+)"',stale.text).group(1)
     assert fresh!=token1
     assert client.post('/login',data={'password':'test-only-long-password','csrf':fresh},follow_redirects=False).status_code==303
+
+def test_artwork_exact_names_safe_images_and_cached_pair(tmp_path):
+    requests=[]
+    def handler(request):
+        requests.append(request)
+        name=request.url.params.get('exact')
+        assert name and 'fuzzy' not in request.url.params
+        return httpx.Response(200,json={'name':name,'artist':'Example Artist','image_uris':{'art_crop':'https://cards.scryfall.io/art_crop/front/a/b/example.jpg','normal':'https://cards.scryfall.io/normal/front/a/b/example.jpg'},'scryfall_uri':'https://scryfall.com/card/example'})
+    client=ScryfallClient(tmp_path/'art.db',httpx.MockTransport(handler))
+    result=client.artwork('First Commander; Second Commander')
+    assert len(result['cards'])==2 and result['cards'][0]['artist']=='Example Artist'
+    assert client.artwork('First Commander; Second Commander')==result
+    assert len(requests)==2
+    bad=ScryfallClient(tmp_path/'bad-art.db',httpx.MockTransport(lambda r:httpx.Response(200,json={'name':'Custom','image_uris':{'art_crop':'https://evil.example/card.jpg'}})))
+    assert bad.artwork('Custom')['cards']==[]
+
+def test_artwork_faces_and_missing_card_fallback(tmp_path):
+    c=ScryfallClient(tmp_path/'faces.db',httpx.MockTransport(lambda r:httpx.Response(200,json={'name':'Double Face','card_faces':[{'artist':'Face Artist','image_uris':{'art_crop':'https://cards.scryfall.io/art_crop/front/a/b/face.jpg'}}]})))
+    assert c.artwork('Double Face')['cards'][0]['artist']=='Face Artist'
+    missing=ScryfallClient(tmp_path/'missing.db',httpx.MockTransport(lambda r:httpx.Response(404,json={})))
+    assert missing.artwork('My custom commander')=={'cards':[],'available':False}

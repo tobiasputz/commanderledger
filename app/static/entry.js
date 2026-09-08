@@ -6,7 +6,7 @@ let submissionKey=state.editing?state.game.submission_key:uid(),quickTarget=null
 async function loadSeatVersions(card,selected='',historical=false){
  const deckId=card.querySelector('[name=deck_id]').value,select=card.querySelector('[name=deck_version_id]');
  card.querySelector('.version-field').hidden=!deckId;select.innerHTML='<option value="">'+(historical?'Keep recorded version':'Current deck at save time')+'</option>';
- if(!deckId)return;try{const data=await api('/api/decks/'+deckId+'/versions',undefined,'GET');if(card.querySelector('[name=deck_id]').value!==deckId)return;data.versions.forEach(v=>select.add(new Option(v.name+' · '+v.created_at.slice(0,10),v.id)));select.value=selected}catch(err){toast('Version list unavailable; current/recorded version will be used.',true)}
+ if(!deckId)return;try{const data=await api('/api/decks/'+deckId+'/versions',undefined,'GET');if(card.querySelector('[name=deck_id]').value!==deckId)return;data.versions.forEach(v=>{const option=new Option(v.name+' · '+v.created_at.slice(0,10),v.id);option.dataset.commanders=v.commanders;select.add(option)});select.value=selected;card.dispatchEvent(new Event('ledger:version-loaded',{bubbles:true}))}catch(err){toast('Version list unavailable; current/recorded version will be used.',true)}
 }
 const initial=state.game;
 const localDate=new Date();localDate.setMinutes(localDate.getMinutes()-localDate.getTimezoneOffset());

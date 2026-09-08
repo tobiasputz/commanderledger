@@ -69,6 +69,28 @@ class ScryfallClient:
                 if isinstance(exc,ScryfallError): raise
                 raise ScryfallError('Scryfall is unavailable. Manual entry still works.') from exc
 
+    def artwork(self, names: str) -> dict:
+        """Exact-name decoration; unknown/custom commanders never get guessed art."""
+        names_list=list(dict.fromkeys(n.strip() for n in names.split(';') if n.strip()))
+        if not 1<=len(names_list)<=2: return {'cards':[], 'available':False}
+        cards=[]
+        for name in names_list:
+            try: result=self.get('/cards/named',{'exact':name},7*86400)
+            except ScryfallError: continue
+            card=result['data'];faces=card.get('card_faces') or []
+            face=faces[0] if faces else {}
+            images=card.get('image_uris') or face.get('image_uris',{})
+            def safe_image(value):
+                parsed=urlsplit(value or '')
+                return value if parsed.scheme=='https' and (parsed.hostname or '').endswith('.scryfall.io') and not parsed.username else ''
+            crop=safe_image(images.get('art_crop'))
+            if not crop: continue
+            link=card.get('scryfall_uri','')
+            if urlsplit(link).scheme!='https' or urlsplit(link).hostname!='scryfall.com': link=''
+            cards.append({'name':card.get('name',name),'art':crop,'image':safe_image(images.get('normal')),
+                          'artist':card.get('artist') or face.get('artist',''),'url':link,'stale':result['stale']})
+        return {'cards':cards,'available':bool(cards)}
+
     def autocomplete(self,q: str) -> dict:
         result=self.get('/cards/autocomplete',{'q':q,'include_extras':'false'},86400)
         return {'names':result['data'].get('data',[])[:20],'cached':result['cached'],'stale':result['stale']}

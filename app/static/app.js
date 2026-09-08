@@ -3,7 +3,11 @@ window.catalog=JSON.parse(document.querySelector('#catalog-data').textContent);
 window.ledgerSettings=JSON.parse(document.querySelector('#settings-data').textContent);
 window.escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 window.toast=(message,error=false)=>{const t=document.querySelector('#toast');t.textContent=message;t.className='show'+(error?' error':'');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.className='',6000)};
-window.api=async(url,data,method='POST')=>{const response=await fetch(url,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]')?.content||''},body:data===undefined?undefined:JSON.stringify(data)});const body=await response.json();if(!response.ok){const d=body.detail;throw new Error(Array.isArray(d)?d.map(e=>e.loc.join('.')+': '+e.msg).join('\n'):d||'Request failed')}return body};
+window.api=async(url,data,method='POST')=>{
+ let response;try{response=await fetch(url,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]')?.content||''},body:data===undefined?undefined:JSON.stringify(data)})}catch{throw new Error('Connection interrupted. Your entry is still here; reconnect and try saving again.')}
+ let body;try{body=await response.json()}catch{throw new Error('The server did not respond normally. Wait a moment and try again.')}
+ if(!response.ok){const d=body.detail;throw new Error(Array.isArray(d)?d.map(e=>e.loc.join('.')+': '+e.msg).join('\n'):d||'Request failed')}return body
+};
 window.labels=ledgerSettings.rating_labels||['Very unenjoyable','Unenjoyable','Neutral','Enjoyable','Very enjoyable'];
 window.fillRatings=(root=document)=>root.querySelectorAll('.rating-select').forEach(select=>{if(select.dataset.filled)return;labels.forEach((text,i)=>select.add(new Option(`${i+1} · ${text}`,i+1)));select.dataset.filled='true'});
 fillRatings();

@@ -1,4 +1,10 @@
-# Commander Ledger v3 — collection and table update
+# Commander Ledger v4 — artwork and usability
+
+Start with **UPDATE_V4.md** to update your existing Railway service.
+
+Commander art from Scryfall now decorates your collection, profiles, games and entry form. Tap art for a larger card view with artist credits. The update also adds mobile bottom navigation, an owner filter, quick-play actions, improved light/dark styling, readable connection errors and a per-device artwork switch. No additional database migration or Railway variables are needed for v3 users.
+
+## Previous release: v3 — collection and table update
 
 Already running on Railway? Start with **UPDATE_V3.md**. Keep your existing service, variables, domain, and `/data` volume.
 
