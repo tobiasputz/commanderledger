@@ -46,12 +46,22 @@ def merge_player(identity: str,data: MergeInput,db: Session=Depends(get_db)) -> 
     source_games=set(db.scalars(select(Participant.game_id).where(Participant.player_id==identity)))
     target_games=set(db.scalars(select(Participant.game_id).where(Participant.player_id==target.id)))
     if source_games & target_games: raise HTTPException(409,'Both players appear in the same game; resolve those seats first')
+    from app.models import League,LeagueRound,Feedback
+    leagues=[league for league in db.scalars(select(League)) if identity in league.player_ids or target.id in league.player_ids]
+    if any(db.scalar(select(LeagueRound.id).where(LeagueRound.league_id==league.id)) for league in leagues):
+        raise HTTPException(409,'A player belongs to a league with rounds. Keep that historical identity instead of merging it.')
+    from app.security import connect,config
+    with connect(config()) as auth_db:
+        if auth_db.execute('SELECT 1 FROM accounts WHERE player_id IN (?,?)',(identity,target.id)).fetchone(): raise HTTPException(409,'Disable and unlink these player accounts before merging identities.')
     backup_database(db)
     # Historical display and owner snapshots intentionally remain unchanged.
     db.execute(update(Participant).where(Participant.player_id==identity).values(player_id=target.id))
     for deck in db.scalars(select(Deck).where(Deck.owner_id==identity)): deck.owner_id=target.id
     db.execute(update(Ownership).where(Ownership.owner_id==identity).values(owner_id=target.id))
     db.execute(update(Rating).where(Rating.rater_id==identity).values(rater_id=target.id))
+    db.execute(update(Feedback).where(Feedback.player_id==identity).values(player_id=target.id))
+    for league in leagues:
+        league.player_ids=list(dict.fromkeys(target.id if pid==identity else pid for pid in league.player_ids))
     from app.models import SavedPod
     for pod in db.scalars(select(SavedPod)):
         pod.player_ids=list(dict.fromkeys(target.id if pid==identity else pid for pid in pod.player_ids))
@@ -135,6 +145,8 @@ class FlagInput(BaseModel):
 
 @router.post('/games/{identity}/trash')
 def trash_game(identity: str,data: FlagInput,db: Session=Depends(get_db)) -> dict:
+    from app.services.leagues import guard_game
+    guard_game(db,identity)
     game=require(db,Game,identity); game.deleted=data.deleted; db.commit(); return {'ok':True}
 
 @router.post('/ratings')

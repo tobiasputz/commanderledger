@@ -135,3 +135,67 @@ class Setting(Base):
     __tablename__ = 'settings'
     key: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[Any] = mapped_column(JSON)
+
+class LiveGame(Record, Base):
+    __tablename__='live_games'
+    name: Mapped[str]
+    state: Mapped[dict]=mapped_column(JSON)
+    revision: Mapped[int]=mapped_column(default=0)
+    game_id: Mapped[str | None]=mapped_column(ForeignKey('games.id'))
+
+class Season(Record, Base):
+    __tablename__='seasons'
+    name: Mapped[str]
+    date_from: Mapped[str]
+    date_to: Mapped[str]
+
+class League(Record, Base):
+    __tablename__='leagues'
+    name: Mapped[str]
+    player_ids: Mapped[list]=mapped_column(JSON)
+    scoring: Mapped[dict]=mapped_column(JSON)
+    archived: Mapped[bool]=mapped_column(default=False)
+
+class LeagueRound(Record, Base):
+    __tablename__='league_rounds'
+    league_id: Mapped[str]=mapped_column(ForeignKey('leagues.id'))
+    number: Mapped[int]
+    locked: Mapped[bool]=mapped_column(default=False)
+    pairings: Mapped[list]=mapped_column(JSON)
+    byes: Mapped[list]=mapped_column(JSON,default=list)
+    results: Mapped[dict]=mapped_column(JSON,default=dict)
+    scoring: Mapped[dict]=mapped_column(JSON)
+    __table_args__=(UniqueConstraint('league_id','number'),)
+
+class Feedback(Record, Base):
+    __tablename__='feedback'
+    game_id: Mapped[str]=mapped_column(ForeignKey('games.id'))
+    player_id: Mapped[str]=mapped_column(ForeignKey('players.id'))
+    confirmed: Mapped[bool]=mapped_column(default=False)
+    values: Mapped[dict]=mapped_column(JSON,default=dict)
+    __table_args__=(UniqueConstraint('game_id','player_id'),)
+
+class DeckAnalysis(Record, Base):
+    __tablename__='deck_analysis'
+    deck_id: Mapped[str]=mapped_column(ForeignKey('decks.id'),unique=True)
+    status: Mapped[str]=mapped_column(default='pending')
+    source_hash: Mapped[str]=mapped_column(default='')
+    result: Mapped[dict]=mapped_column(JSON,default=dict)
+    overrides: Mapped[dict]=mapped_column(JSON,default=dict)
+    error: Mapped[str]=mapped_column(default='')
+
+class SourceCheck(Record, Base):
+    __tablename__='source_checks'
+    deck_id: Mapped[str]=mapped_column(ForeignKey('decks.id'),unique=True)
+    payload: Mapped[dict]=mapped_column(JSON,default=dict)
+    source_hash: Mapped[str]=mapped_column(default='')
+    error: Mapped[str]=mapped_column(default='')
+
+class AuditLog(Record, Base):
+    __tablename__='audit_log'
+    actor: Mapped[str]
+    action: Mapped[str]
+    entity: Mapped[str]
+    entity_id: Mapped[str]
+    before: Mapped[dict]=mapped_column(JSON,default=dict)
+    after: Mapped[dict]=mapped_column(JSON,default=dict)

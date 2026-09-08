@@ -22,7 +22,7 @@ def login_get(request: Request) -> HTMLResponse:
     return login_page(request)
 
 @router.post('/login')
-async def login_post(request: Request,password: str=Form(...,max_length=1024),csrf: str=Form(...,max_length=200)) -> HTMLResponse:
+async def login_post(request: Request,password: str=Form(...,max_length=1024),csrf: str=Form(...,max_length=200),username: str=Form(default='',max_length=80)) -> HTMLResponse:
     cfg=config()
     if not hmac.compare_digest(csrf,request.cookies.get(LOGIN_COOKIE,'')) or not csrf:
         return login_page(request,'This sign-in page no longer matches your browser session. Enter your password again. If this repeats, open the HTTPS site directly in Safari or your browser and allow cookies.',403)
@@ -31,10 +31,21 @@ async def login_post(request: Request,password: str=Form(...,max_length=1024),cs
         response=login_page(request,'Too many sign-in attempts. Try again in ten minutes.',429)
         response.headers['Retry-After']='600'
         return response
-    if not await run_in_threadpool(verify_password,password,cfg.password_hash):
+    username=username.strip().lower()
+    encoded=cfg.password_hash
+    if username and username!='owner':
+        from app.security import connect
+        with connect(cfg) as con: account=con.execute('SELECT * FROM accounts WHERE username=? AND disabled=0',(username,)).fetchone()
+        encoded=account['password_hash'] if account else cfg.password_hash
+        valid=await run_in_threadpool(verify_password,password,encoded)
+        valid=valid and account is not None
+    else:
+        username=''
+        valid=await run_in_threadpool(verify_password,password,encoded)
+    if not valid:
         return login_page(request,'Incorrect password.',401)
-    token=await run_in_threadpool(create_session,cfg)
-    response=RedirectResponse('/',status_code=303)
+    token=await run_in_threadpool(create_session,cfg,username)
+    response=RedirectResponse('/member' if username else '/',status_code=303)
     response.set_cookie(COOKIE,token,max_age=7*86400,secure=cfg.hosted,httponly=True,samesite='strict',path='/')
     response.delete_cookie(LOGIN_COOKIE,secure=cfg.hosted,httponly=True,samesite='strict')
     return response

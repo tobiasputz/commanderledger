@@ -30,7 +30,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             with SessionLocal() as db: backup_database(db)
     else:
         with SessionLocal() as db: backup_database(db)
-    yield
+    import asyncio
+    from app.services.maintenance import loop
+    maintenance=asyncio.create_task(loop(SessionLocal))
+    try: yield
+    finally:
+        maintenance.cancel()
+        try: await maintenance
+        except asyncio.CancelledError: pass
 
 app=FastAPI(title='Commander Ledger',lifespan=lifespan,docs_url=None,redoc_url=None)
 @app.middleware('http')
@@ -38,6 +45,9 @@ async def security_boundary(request: Request,call_next: Callable) -> Response:
     cfg=security.config()
     request.state.auth_enabled=cfg.enabled
     request.state.csrf=''
+    request.state.role='owner'
+    request.state.player_id=None
+    request.state.username='owner'
     try: security.validate_configuration(cfg)
     except RuntimeError:
         return JSONResponse({'detail':'Server configuration is incomplete; access is disabled.'},status_code=503)
@@ -48,7 +58,7 @@ async def security_boundary(request: Request,call_next: Callable) -> Response:
     writing=request.method not in ('GET','HEAD','OPTIONS')
     if writing and ((origin and origin!=expected) or request.headers.get('sec-fetch-site')=='cross-site'):
         return JSONResponse({'detail':'Cross-site writes are blocked'},status_code=403)
-    public=request.url.path in ('/login','/healthz') or request.url.path.startswith('/static/')
+    public=request.url.path in ('/login','/healthz','/join') or request.url.path.startswith('/static/')
     if cfg.enabled and not public:
         active=await run_in_threadpool(security.session,request,cfg)
         if not active:
@@ -57,9 +67,17 @@ async def security_boundary(request: Request,call_next: Callable) -> Response:
             from fastapi.responses import RedirectResponse
             return RedirectResponse('/login',status_code=303)
         request.state.csrf=active['csrf']
+        request.state.role=active.get('role','owner')
+        request.state.player_id=active.get('player_id')
+        request.state.username=active.get('username','owner')
+        if request.state.role=='member' and not (request.url.path=='/member' or request.url.path.startswith('/api/member/') or request.url.path.startswith('/api/scryfall/') or request.url.path=='/logout'):
+            return JSONResponse({'detail':'This page is for the administrator. Open /member for your player portal.'},status_code=403)
         if writing and not hmac.compare_digest(request.headers.get('x-csrf-token',''),active['csrf']):
             return JSONResponse({'detail':'Session verification failed. Reload the page and retry.'},status_code=403)
-    response=await call_next(request)
+    from app.services.audit import actor
+    context_token=actor.set(request.state.username)
+    try: response=await call_next(request)
+    finally: actor.reset(context_token)
     response.headers['X-Content-Type-Options']='nosniff'
     response.headers['X-Frame-Options']='DENY'
     response.headers['Referrer-Policy']='same-origin'
@@ -92,3 +110,6 @@ app.include_router(scryfall_router)
 
 from app.routes.features import router as features_router
 app.include_router(features_router)
+
+from app.routes.playgroup import router as playgroup_router
+app.include_router(playgroup_router)

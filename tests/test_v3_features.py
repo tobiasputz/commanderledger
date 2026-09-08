@@ -121,6 +121,7 @@ def test_backup_v2_and_legacy(client,db,records):
  backup=export_json(db);restore_json(db,backup);db.commit()
  assert export_json(db)['tables']==backup['tables']
  legacy=copy.deepcopy(backup);legacy['version']=1
+ for table in ('live_games','seasons','leagues','league_rounds','feedback','deck_analysis','source_checks','audit_log'):legacy['tables'].pop(table)
  del legacy['tables']['deck_versions'];del legacy['tables']['saved_pods']
  for row in legacy['tables']['decks']:
   for k in ('deleted_at','source_url','sideboard','maybeboard'):row.pop(k)

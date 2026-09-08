@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.models import Game, Participant, Player, Deck, Location, Event, Rating, Ownership, now, uid
+from app.models import Game, Participant, Player, Deck, Location, Event, Rating, Ownership, Feedback, now, uid
 from app.schemas import GameInput, RatingInput
 
 def require(db: Session, model: type, identity: str) -> object:
@@ -10,6 +10,9 @@ def require(db: Session, model: type, identity: str) -> object:
     return obj
 
 def save_game(db: Session, data: GameInput, identity: str | None = None) -> Game:
+    if identity:
+        from app.services.leagues import guard_game
+        guard_game(db,identity)
     duplicate=db.scalar(select(Game).where(Game.submission_key==data.submission_key))
     if duplicate and not identity: return duplicate
     if duplicate and duplicate.id != identity: raise HTTPException(409,'Submission key belongs to another game')
@@ -72,6 +75,16 @@ def save_game(db: Session, data: GameInput, identity: str | None = None) -> Game
         for k,v in values.items(): setattr(p,k,v)
         kept.append(p)
     removed=set(old)-{p.id for p in kept}
+    if identity:
+        old_players={p.player_id for p in old.values() if p.player_id}
+        new_players={p.player_id for p in kept if p.player_id}
+        if old_players!=new_players:
+            feedback=list(db.scalars(select(Feedback).where(Feedback.game_id==identity)))
+            feedback_authors={row.player_id for row in feedback}
+            # A seat change invalidates the sealed group-feedback set and its published ratings.
+            for row in feedback: db.delete(row)
+            for rating in db.scalars(select(Rating).where(Rating.game_id==identity,Rating.rater_id.in_(feedback_authors))):
+                db.delete(rating)
     # Ratings tied to removed seats are deleted; ratings on retained seats remain.
     for r in list(game.ratings):
         if r.participant_id in removed:

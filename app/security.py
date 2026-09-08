@@ -66,6 +66,7 @@ def connect(cfg: SecurityConfig) -> sqlite3.Connection:
     con=sqlite3.connect(cfg.auth_path,timeout=10)
     con.row_factory=sqlite3.Row
     con.executescript('CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL, fingerprint TEXT NOT NULL); CREATE TABLE IF NOT EXISTS attempts (ip TEXT NOT NULL, attempted REAL NOT NULL); CREATE INDEX IF NOT EXISTS attempts_time ON attempts(attempted);')
+    con.executescript('CREATE TABLE IF NOT EXISTS accounts (username TEXT PRIMARY KEY, player_id TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS invitations (token TEXT PRIMARY KEY, player_id TEXT NOT NULL, expires REAL NOT NULL); CREATE TABLE IF NOT EXISTS session_accounts (token TEXT PRIMARY KEY, username TEXT NOT NULL, fingerprint TEXT NOT NULL);')
     return con
 
 def session(request: Request,cfg: SecurityConfig) -> dict | None:
@@ -73,7 +74,14 @@ def session(request: Request,cfg: SecurityConfig) -> dict | None:
     if not token or len(token)>200: return None
     with connect(cfg) as con:
         row=con.execute('SELECT * FROM sessions WHERE token=? AND expires>? AND fingerprint=?',(hashlib.sha256(token.encode()).hexdigest(),time.time(),cfg.fingerprint)).fetchone()
-    return dict(row) if row else None
+        if not row:return None
+        linked=con.execute('SELECT a.*, s.fingerprint AS session_fingerprint FROM session_accounts s JOIN accounts a ON a.username=s.username WHERE s.token=?',(row['token'],)).fetchone()
+        mapping=con.execute('SELECT 1 FROM session_accounts WHERE token=?',(row['token'],)).fetchone()
+        if mapping and not linked:return None
+        if linked:
+            if linked['disabled'] or linked['session_fingerprint']!=hashlib.sha256(linked['password_hash'].encode()).hexdigest():return None
+            return {**dict(row),'role':'member','username':linked['username'],'player_id':linked['player_id']}
+    return {**dict(row),'role':'owner','username':'owner','player_id':None}
 
 def login_attempt(cfg: SecurityConfig,ip: str) -> bool:
     # Count attempts atomically before expensive password verification; one app worker.
@@ -86,11 +94,15 @@ def login_attempt(cfg: SecurityConfig,ip: str) -> bool:
         con.execute('INSERT INTO attempts VALUES (?,?)',(ip,time.time()))
     return True
 
-def create_session(cfg: SecurityConfig) -> str:
+def create_session(cfg: SecurityConfig, username: str='') -> str:
     token=secrets.token_urlsafe(32)
     with connect(cfg) as con:
         con.execute('DELETE FROM sessions WHERE expires<? OR fingerprint!=?',(time.time(),cfg.fingerprint))
         con.execute('INSERT INTO sessions VALUES (?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),secrets.token_urlsafe(32),time.time()+7*86400,cfg.fingerprint))
+        if username:
+            account=con.execute('SELECT * FROM accounts WHERE username=? AND disabled=0',(username,)).fetchone()
+            if not account:raise ValueError('Account unavailable')
+            con.execute('INSERT INTO session_accounts VALUES (?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),username,hashlib.sha256(account['password_hash'].encode()).hexdigest()))
     return token
 
 def revoke(cfg: SecurityConfig,token: str) -> None:
